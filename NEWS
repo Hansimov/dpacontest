@@ -1,0 +1,55 @@
+06/07/2015 Version 2.2.0
+
+* Introduction of the float format for v4.2
+* Add option --no_float_format to revert to the old behavior for v4.2
+
+16/09/2014 Version 2.1.1
+
+* Minor correction (shuffle13 -> shuffle10)
+
+15/09/2014 Version 2.1
+
+* Integration of the new v4.2 implementation
+
+16/09/2013 Version 2.0.2
+
+* Add option --do_not_check_traces_availability to the wrapper
+* Bug correction (problem during the read of the result file in compute_results.exe on Windows)
+
+30/07/2013 Version 2.0.1
+
+* Porting to Windows
+* Bug correction
+* New tool: traces2text which convert a trace file to a text file (one
+  sample per line)
+
+24/07/2013 Version 2.0
+
+* The wrapper has been totally rewritten to be able to manage several
+  editions of the contest (v2 and v4)
+
+22/11/2010 Version 1.1.2
+
+* Time elapsed and time remaining added to wrapper's output
+* Improvement of the DB mode (use of cursor)
+* Prevent results overwrite
+
+
+12/05/2010 Version 1.1.0
+
+* New FIFO mode to make it easier to use Matlab under Unix/Linux
+
+
+23/02/2010 Version 1.0
+
+* Use of autoconf/automake to make the compilation and installation
+  process easier and to improve portability
+
+* Multi-threading capability (the n+1 trace is fetched at the same
+  time that the trace n is processed by the attack program)
+
+* Possibility to read traces from the disk instead of retrieve them
+  from the public database (to bypass strict firewalls and to speed
+  up)
+
+* Addition of a reference attack in Python

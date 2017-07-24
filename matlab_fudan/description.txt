@@ -1,0 +1,6 @@
+We find that the mask Ox00 always turns up after OxFF (except that the offset is 0). 
+And their hammingweight are 0 and 8. So there are a salient fall between them. 
+We can retrieve the offset by distinguishing the position of the fall. 
+And then we can calculate the hamming weight of the output of the sboxs just like treating simple AES algorithm. 
+And since these traces have been aligned, we can choose a few of points to reduce the calculation.
+

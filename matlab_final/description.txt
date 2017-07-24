@@ -1,0 +1,10 @@
+<Version 1.0>
+# Firstly, we calculate the correlation between the Hamming weight of Moffset£¬Moffset+1£¬¡­£¬Moffset+i£¬¡­£¬Moffset+15 and power consumption.
+# We find there is a large correlation in a point of the power trace, donating as the P1i(0<=i<=15). 
+# Moreover, there is a negative correlation after 12 points P1i , donation as P2i(0<=i<=15). 
+# Through the observation of the mask M= [0 15 54 57 83 92 101 106 149 154 163 172 198 201 240 255], it can be summarized that the hamming weight of all masks is 4 except the o and ff. In addition, the o and ff are adjacent. So the mask has a big probability to be ff when the P1i & P2i have the biggest difference, by which we can calculate the offset. For example,  when the (P1i-P2i)-( P1i+1-P2i+1) is the largest, the mast of point i is FF, and offset+15=i.(since ff is the last one at beginning).
+# Knowing the offset, we can attack the S box by using CPA. We choose 30 points for every S-Box for attacking. The hamming weight of S(x+k)+M can be calculated for each k since we know the M.
+
+
+<Version 2.0>
+This version is an improvement of the previous one, whcih firstly fix the offset of the mask and mount a traditional first order DPA. There are two aspects improved. Fisrt one is selecting some more effective attack point. The other one is taking the situations that the misalignment between test trace and public trace into consideration. We opt the range of offset to mount a best attack.

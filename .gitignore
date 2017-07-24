@@ -1,0 +1,12 @@
+# results
+/results/
+/results_fudan/
+/results_sjtu/
+*.dat
+
+# traces
+dpav4_rsm_index
+/traces/00000/
+/traces/mytracetexts/
+*.trc.bz2
+
