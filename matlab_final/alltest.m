@@ -1,4 +1,4 @@
-%% speed test
+
 function alltest()
 % ShiftRowsTest();
 % GFMulTest();
@@ -6,12 +6,31 @@ function alltest()
 % TextToMatrixTest()
 % SubBytesTest()
 % KeyScheduleTest()
-AES_256_Test()
+% AES_256_Test()
+
+
 end
 % maskbox = {
 %     '00','00','00','00','00','00','00','00', ...
 %     '00','00','00','00','00','00','00','00'
 %     };
+
+%% OperatorTest
+function OperatorTest()
+% Only used in MUPAD 
+m1 = {
+    '00','00','00','00','00','00','00','00', ...
+    '00','00','00','00','00','00','00','00'
+    }
+m2 = {
+    '00','0F','36','39','53','5C','65','6A', ...
+    '95','9A','A3','AC','C6','C9','F0','FF'
+    }
+operator('ADD',MatrixXor,Binary,1000)
+m = m1 ADD m2;
+operator('ADD',Delete)
+end
+
 %% AddRoundKey
 function state_out = AddRoundKey(state_in,key_in)
 state_out = MatrixXor(state_in,key_in);
@@ -298,8 +317,8 @@ for i = 1:numel(matrix1)
 end
 end
 
-%%
-function speedtest
+%% speed test
+function speedtest()
 a = magic(3000);
 b = magic(3000);
 c1 = [];

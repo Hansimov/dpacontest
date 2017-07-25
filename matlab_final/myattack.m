@@ -1,249 +1,241 @@
-%
-% Framework for developping attacks in Matlab under Windows
-% for the DPA contest V4, AES256 RSM implementation
-%
-% Requires the wrapper tool for Windows
-%
-% Version 1,   29/07/2013
-% Version 1.0, 03/12/2013 @ SJTU
-% Version 2.0, 20/12/2013 @ SJTU
-%
-% Guillaume Duc <guillaume.duc@telecom-paristech.fr>
-%
+%% myattack
+function myattack()
+trace_num = 11;
+[key,plain_text,cipher_text,offset,trace] = Inputs(trace_num)
 
-% Due to the very long duration of an encryption operation on the smart-card
-% (the AES has been coded in C and not in assembly language),
-% the traces only cover the first round and the beginning of the second round of the AES.
+vin1 = cell(1,trace_num);
+% 
+% for i = 1:1
+% [vin1,vin2,vout1,vout2] = GetInterValue(key{i},plain_text{i},cipher_text{i},offset{i})
+% end
 
-% The target is an AES-256 but only the first round is provided.
-% So, the submissions will be evaluated only on their capability
-% to recover the 128 bits of the firstsubkey 
-% and not the 256 bits of the main key.
-
-% The subkey used during the first AddRoundKey operation of the AES is numbered 0
-% (in fact, this subkey is the first 128 bits of the main encryption key).
-% The last subkey for an AES-256 is numbered 14 
-% (it is used in the 14th AddRoundKey operation).
-
-% Number of the attacked subkey
-attacked_subkey = 0;
-
-% TODO: adapt it
-hanmingweight = [ % 0x00 -- 0xFF
-    0 1 1 2 1 2 2 3 1 2 2 3 2 3 3 4 ...
-    1 2 2 3 2 3 3 4 2 3 3 4 3 4 4 5 ...
-    1 2 2 3 2 3 3 4 2 3 3 4 3 4 4 5 ...
-    2 3 3 4 3 4 4 5 3 4 4 5 4 5 5 6 ...
-    1 2 2 3 2 3 3 4 2 3 3 4 3 4 4 5 ...
-    2 3 3 4 3 4 4 5 3 4 4 5 4 5 5 6 ...
-    2 3 3 4 3 4 4 5 3 4 4 5 4 5 5 6 ...
-    3 4 4 5 4 5 5 6 4 5 5 6 5 6 6 7 ...
-    1 2 2 3 2 3 3 4 2 3 3 4 3 4 4 5 ...
-    2 3 3 4 3 4 4 5 3 4 4 5 4 5 5 6 ...
-    2 3 3 4 3 4 4 5 3 4 4 5 4 5 5 6 ...
-    3 4 4 5 4 5 5 6 4 5 5 6 5 6 6 7 ...
-    2 3 3 4 3 4 4 5 3 4 4 5 4 5 5 6 ...
-    3 4 4 5 4 5 5 6 4 5 5 6 5 6 6 7 ...
-    3 4 4 5 4 5 5 6 4 5 5 6 5 6 6 7 ...
-    4 5 5 6 5 6 6 7 5 6 6 7 6 7 7 8
-    ];
-sbox = [ % Decimal Format of the Standard S-Box
-     99,124,119,123,242,107,111,197, 48,  1,103, 43,254,215,171,118, ...
-    202,130,201,125,250, 89, 71,240,173,212,162,175,156,164,114,192, ...
-    183,253,147, 38, 54, 63,247,204, 52,165,229,241,113,216, 49, 21, ...
-      4,199, 35,195, 24,150,  5,154,  7, 18,128,226,235, 39,178,117, ...
-      9,131, 44, 26, 27,110, 90,160, 82, 59,214,179, 41,227, 47,132, ...
-     83,209,  0,237, 32,252,177, 91,106,203,190, 57, 74, 76, 88,207, ...
-    208,239,170,251, 67, 77, 51,133, 69,249,  2,127, 80, 60,159,168, ...
-     81,163, 64,143,146,157, 56,245,188,182,218, 33, 16,255,243,210, ...
-    205, 12, 19,236, 95,151, 68, 23,196,167,126, 61,100, 93, 25,115, ...
-     96,129, 79,220, 34, 42,144,136, 70,238,184, 20,222, 94, 11,219, ...
-    224, 50, 58, 10, 73,  6, 36, 92,194,211,172, 98,145,149,228,121, ...
-    231,200, 55,109,141,213, 78,169,108, 86,244,234,101,122,174,  8, ...
-    186,120, 37, 46, 28,166,180,198,232,221,116, 31, 75,189,139,138, ...
-    112, 62,181,102, 72,  3,246, 14, 97, 53, 87,185,134,193, 29,158, ...
-    225,248,152, 17,105,217,142,148,155, 30,135,233,206, 85, 40,223, ...
-    140,161,137, 13,191,230, 66,104, 65,153, 45, 15,176, 84,187, 22
-    ];
-mask = [ % Used in RSM
-      0  15  54  57  83  92 101 106 149 154 163 172 198 201 240 255
-    ];
-
-ssamples     = zeros(1,480);
-s2samples    = zeros(1,480);
-sd           = zeros(16,256,30);
-intermedia   = zeros(16,256);
-sintermedia  = zeros(16,256);
-s2intermedia = zeros(16,256);
-r            = zeros(16,256);
-
-% FIFO filenames (the last argument when launching the
-% wrapper should be 'fifo')
-
- fifo_in_filename   = '\\.\pipe\fifo_from_wrapper';
- fifo_out_filename  = '\\.\pipe\fifo_to_wrapper';
-
-
-% Open the two communication FIFO
-% We have to use the Java interface as the native function fopen from
-% Matlab is unable to open FIFO!
-
-fifo_in = java.io.FileInputStream(fifo_in_filename);
-fifo_out = java.io.FileOutputStream(fifo_out_filename);
-
-% Retrieve the number of traces
-
-num_traces_b = arrayfun(@(x) fifo_in.read(), 1:4);
-num_traces   = num_traces_b(4) * 2^24 + num_traces_b(3) * 2^16 ...
-               + num_traces_b(2) * 2^8 + num_traces_b(1);
-
-% Send start of attack string
-% attack_wrapper.exe -i 20 -d DPA_contestv4_rsm -x dpav4_rsm_index\dpav4_rsm_index_1000.txt -e v4_RSM fifo
-
-fifo_out.write([10 46 10]);
-
-% Main loop
-for iteration = 1:num_traces
-
-    % Read trace
-    plaintext  = arrayfun(@(x) fifo_in.read(), 1:16);
-    ciphertext = arrayfun(@(x) fifo_in.read(), 1:16);
-    offset     = fifo_in.read();
-    samples    = arrayfun(@(x) fifo_in.read(), 1:435002); % read samples as unsigned bytes
-       
-    % read Mask power 16x30 and Sbox power 16x30
-    samples = [ % 1x960
-        samples(4798:4827)     samples(9140:9169)     samples(13479:13508)   samples(17823:17852) ...
-        samples(22163:22192)   samples(26506:26535)   samples(30846:30875)   samples(35189:35218) ...
-        samples(39531:39560)   samples(43873:43902)   samples(48212:48241)   samples(52555:52584) ...
-        samples(56896:56925)   samples(61239:61268)   samples(65579:65608)   samples(69921:69950) ...
-        samples(101572:101601) samples(187071:187100) samples(200732:200761) samples(275720:275759) ...
-        samples(256954:256983) samples(180844:180873) samples(203596:203625) samples(217259:217288) ...
-        samples(285524:285553) samples(262555:262584) samples(197367:197396) samples(220122:220151) ...
-        samples(314093:314122) samples(184206:184235) samples(256253:256282) samples(213892:213921)
-    ];
-
-    samples = arrayfun(@(x) typecast(uint8(x),'int8'), samples); % convert to signed bytes
-    
-    % read Mask power 16x2
-    maxpowerDiff = -inf;
-    offset = 0;
-    for off = -2:5    % can be adjusted
-        %off = 1;
-        % samplesM: 16*2
-        samplesM(1,1)  = samples(8+off);      samplesM(1,2) = samples(20+off);
-        samplesM(2,1)  = samples(37+off);     samplesM(2,2) = samples(49+off);
-        samplesM(3,1)  = samples(69+off);     samplesM(3,2) = samples(81+off);
-        samplesM(4,1)  = samples(97+off);     samplesM(4,2) = samples(109+off);
-        samplesM(5,1)  = samples(129+off);    samplesM(5,2) = samples(141+off);
-        samplesM(6,1)  = samples(157+off);    samplesM(6,2) = samples(169+off);
-        samplesM(7,1)  = samples(188+off);    samplesM(7,2) = samples(200+off);
-        samplesM(8,1)  = samples(217+off);    samplesM(8,2) = samples(229+off);
-        samplesM(9,1)  = samples(247+off);    samplesM(9,2) = samples(259+off);
-        samplesM(10,1) = samples(276+off);   samplesM(10,2) = samples(288+off);
-        samplesM(11,1) = samples(308+off);   samplesM(11,2) = samples(320+off);
-        samplesM(12,1) = samples(337+off);   samplesM(12,2) = samples(349+off);
-        samplesM(13,1) = samples(367+off);   samplesM(13,2) = samples(379+off);
-        samplesM(14,1) = samples(396+off);   samplesM(14,2) = samples(408+off);
-        samplesM(15,1) = samples(427+off);   samplesM(15,2) = samples(439+off);
-        samplesM(16,1) = samples(457+off);   samplesM(16,2) = samples(469+off);
-
-    
-    % TODO: put your attack code here
-    %
-    % Your attack code can use:
-    % - plaintext: the plaintext
-    % - ciphertext: the ciphertext
-    % - offset: the offset (0 unless the wrapper is launched with --provide_offset_v4_rsm)
-    % - samples: the samples of the trace
-    %
-    % And must produce bytes which is a 256 lines x 16 columns array
-    % (matrix) where for each byte of the attacked subkey (the columns of
-    % the array), all the 256 possible values of this byte are sorted
-    % according to their probability (first position: most probable, last:
-    % least probable), i.e. if your attack is successful, the value of the
-    % key is the first line of the array.
-    
-    % to find out offset
-        for i=1:16
-            tmp = samplesM(i,1) - samplesM(i,2) + samplesM(mod(i,16)+1,2) - samplesM(mod(i,16)+1,1);
-            if (tmp > maxpowerDiff)
-                maxpowerDiff = tmp;
-                offset = 16-i;
-            end
-        end
-    end
-    
-    % offset
-    % compute intermedia
-    for guesskey=0:255
-        for i=1:16
-            M_off = mod(offset+i,16)+1;
-            tmp = bitxor(plaintext(i),guesskey);
-            tmp = bitxor(sbox(tmp+1),mask(M_off));
-            intermedia(i,guesskey+1) = hanmingweight(tmp+1);
-            for j=1:30
-                sd(i,guesskey+1,j) = sd(i,guesskey+1,j) + intermedia(i,guesskey+1) * double(samples(480+j+(i-1)*30));
-            end
-        end
-    end
-    sintermedia  =  sintermedia + intermedia;
-    s2intermedia = s2intermedia + intermedia.^2;
-    
-    ssamples  = ssamples  + double(samples(481:960));
-    s2samples = s2samples + double(samples(481:960)).^2;
-       
-    tmpr = zeros(1,30);
-    for i=1:16 % Key Length: 128 bits = 16 bytes
-        for guesskey=0:255 % 1 byte = 8 bits : Each byte has 256 possibilities
-            var_intermedia = ...
-                (s2intermedia(i,guesskey+1) - sintermedia(i,guesskey+1)*sintermedia(i,guesskey+1)/iteration) ...
-                / iteration;
-            if (var_intermedia == 0)
-                r(i,guesskey+1) = 0;
-            else
-                for j=1:30
-                    var_samples = ...
-                        (s2samples(j+(i-1)*30) - ssamples(j+(i-1)*30) * ssamples(j+(i-1)*30) / iteration) ...
-                         / iteration;
-                    if (var_samples == 0)
-                        tmpr(j) = 0;
-                    else
-                        tmpr(j) ...
-                            = (sd(i,guesskey+1,j) - ssamples(j+(i-1)*30) * sintermedia(i,guesskey+1)/iteration) ...
-                            / iteration / sqrt(var_intermedia) / sqrt(var_samples);
-                    end
-                end
-                    r(i,guesskey+1) = max(abs(tmpr));
-            end
-        end
-    end
-    
-    %bytes = repmat((0:255)', 1, 16);
-    [xx bytes] = sort(r','descend');
-    bytes = bytes -1;
-
-    % Send result
-    fifo_out.write(attacked_subkey);
-    fifo_out.write(bytes(:,1));
-    fifo_out.write(bytes(:,2));
-    fifo_out.write(bytes(:,3));
-    fifo_out.write(bytes(:,4));
-    fifo_out.write(bytes(:,5));
-    fifo_out.write(bytes(:,6));
-    fifo_out.write(bytes(:,7));
-    fifo_out.write(bytes(:,8));
-    fifo_out.write(bytes(:,9));
-    fifo_out.write(bytes(:,10));
-    fifo_out.write(bytes(:,11));
-    fifo_out.write(bytes(:,12));
-    fifo_out.write(bytes(:,13));
-    fifo_out.write(bytes(:,14));
-    fifo_out.write(bytes(:,15));
-    fifo_out.write(bytes(:,16));
 end
 
-% compute corrlation
-% Close the two FIFOs
-fifo_in.close();
-fifo_out.close();
+%% Inputs
+function [key,plain_text,cipher_text,offset,trace] = Inputs(trace_num)
+key = '6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b';
+key = TextToMatrix(key);
+
+% indexfilename = '../dpav4_rsm_index';
+indexfile = fopen('../dpav4_rsm_index');
+index = textscan(indexfile,'%s %s %s %s %s %s',trace_num); 
+fclose(indexfile);
+
+% Size of index: [trace_num x 1 cell] x 6
+% Column    1       2          3         4         5          6 
+%          Key  Plaintext  Ciphertext  Offset  Directory  TraceFile
+% 
+% Example:
+% index{2}:     Plaintext   ALL: [100000 x 1]
+% index{2}{1}:  Plaintext 00000: 448ff4f8eae2cea393553e15fd00eca1
+
+plain_text  = index{2};
+cipher_text = index{3};
+offset      = index{4};
+
+for i = 1:trace_num
+    plain_text{i} = TextToMatrix(plain_text{i});
+    cipher_text{i} = TextToMatrix(cipher_text{i});
+end
+
+offset = hex2dec(offset);
+
+filename = cell(1,trace_num);
+trace = cell(1,trace_num);
+for i = 1:trace_num
+    if i <= 10
+        filename{i} = strcat('../traces/mytracetexts/tracetexts0000',int2str(i-1));
+    else 
+        filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));
+    end
+    trace{i} = importdata(filename{i})';
+end
+
+end
+
+%% GetInterValue
+function [vin1,vin2,vout1,vout2] = GetInterValue(key,plain_text,cipher_text,offset)
+state = plain_text;
+state = MatrixXor(state,Mask(offset));
+state = AddRoundKey(state,key(:,1:4));
+vin1 = state;
+% Only use first round
+% state = MaskedSubBytes(state,offset+round-1);
+state = MatrixXor(state,Mask(offset));
+vin2 = state;
+state = SubBytes(state);
+vout1 = state;
+state = MatrixXor(state,Mask(offset+1)); 
+vout2 = state;
+
+state = ShiftRows(state);
+state = MixColumns(state);
+state = MatrixXor(state,MaskCompensation(offset+round));
+
+end
+%% ByteHW
+function ByteHW()
+
+end
+
+%% BytePower
+function BytePower()
+end
+
+function GetCorrelationMatrix()
+end
+
+function GetLeakagePosition()
+
+end
+
+%% TextToMatrix
+function matrix = TextToMatrix(text)
+% Type of text  : characters
+% Size of matrix: 4 by N
+row = 4;
+col = numel(text)/8;
+matrix = cell(row,col);
+for i = 1:row*col
+    matrix{i} = [text(2*i-1),text(2*i)];
+end
+end
+%% MatrixToText
+function text = MatrixToText(matrix)
+% Size of matrix: 4 by N
+text = blanks(2*numel(matrix));
+for i = 1:numel(matrix)
+    text(2*i-1) = matrix{i}(1);
+    text(2*i)   = matrix{i}(2);
+end
+end
+%% Mask
+function mask = Mask(offset)
+maskbox = {
+    '00','0F','36','39','53','5C','65','6A', ...
+    '95','9A','A3','AC','C6','C9','F0','FF'
+    };
+mask = circshift(maskbox,-offset,2);
+mask = reshape(mask,4,4);
+end
+%% ByteXor
+function byte_out = ByteXor(byte1,byte2)
+binvec1     = hexToBinaryVector(byte1,8);
+binvec2     = hexToBinaryVector(byte2,8);
+binvec_xor  = bitxor(binvec1,binvec2);
+byte_out    = binaryVectorToHex(binvec_xor);
+end
+%% MatrixXor
+function matrix_out = MatrixXor(matrix1,matrix2)
+% Type of matrix 1 & 2 :    Cell
+% Element of matrix 1 & 2 : Byte
+matrix_out = cell(size(matrix1));
+for i = 1:numel(matrix1)
+    matrix_out{i} = ByteXor(matrix1{i},matrix2{i});
+end
+end
+%% AddRoundKey
+function state_out = AddRoundKey(state_in,key_in)
+state_out = MatrixXor(state_in,key_in);
+end
+%% SubBytes
+function state_out = SubBytes(state_in)
+sbox = { 
+    '63','7C','77','7B','F2','6B','6F','C5','30','01','67','2B','FE','D7','AB','76';
+    'CA','82','C9','7D','FA','59','47','F0','AD','D4','A2','AF','9C','A4','72','C0';
+    'B7','FD','93','26','36','3F','F7','CC','34','A5','E5','F1','71','D8','31','15';
+    '04','C7','23','C3','18','96','05','9A','07','12','80','E2','EB','27','B2','75';
+    '09','83','2C','1A','1B','6E','5A','A0','52','3B','D6','B3','29','E3','2F','84';
+    '53','D1','00','ED','20','FC','B1','5B','6A','CB','BE','39','4A','4C','58','CF';
+    'D0','EF','AA','FB','43','4D','33','85','45','F9','02','7F','50','3C','9F','A8';
+    '51','A3','40','8F','92','9D','38','F5','BC','B6','DA','21','10','FF','F3','D2';
+    'CD','0C','13','EC','5F','97','44','17','C4','A7','7E','3D','64','5D','19','73';
+    '60','81','4F','DC','22','2A','90','88','46','EE','B8','14','DE','5E','0B','DB';
+    'E0','32','3A','0A','49','06','24','5C','C2','D3','AC','62','91','95','E4','79';
+    'E7','C8','37','6D','8D','D5','4E','A9','6C','56','F4','EA','65','7A','AE','08';
+    'BA','78','25','2E','1C','A6','B4','C6','E8','DD','74','1F','4B','BD','8B','8A';
+    '70','3E','B5','66','48','03','F6','0E','61','35','57','B9','86','C1','1D','9E';
+    'E1','F8','98','11','69','D9','8E','94','9B','1E','87','E9','CE','55','28','DF';
+    '8C','A1','89','0D','BF','E6','42','68','41','99','2D','0F','B0','54','BB','16'
+    };
+
+% sbox_dec = reshape(hex2dec(sbox),16,16);
+state_out = cell(size(state_in));
+for i = 1:numel(state_in)
+    row = hex2dec(state_in{i}(1))+1;
+    col = hex2dec(state_in{i}(2))+1;
+    state_out(i) = sbox(row,col);
+end
+end
+%% MaskedSubBytes
+function state_out = MaskedSubBytes(state_in,offset)
+state_tmp = MatrixXor(state_in,Mask(offset));
+state_tmp = SubBytes(state_tmp);
+state_out = MatrixXor(state_tmp,Mask(offset+1)); 
+end
+%% ShiftRows
+function state_out = ShiftRows(state_in)
+% Size of state_in : 4 x 4
+state_out = cell(size(state_in));
+% circshift(V,K,D):
+%     V: Vector
+%     K: Right shift K positions. We need Left shift -K in AES.
+%     D: Dimension shifted. D=2 here.
+state_out(1,:) = circshift(state_in(1,:), 0,2);
+state_out(2,:) = circshift(state_in(2,:),-1,2);
+state_out(3,:) = circshift(state_in(3,:),-2,2);
+state_out(4,:) = circshift(state_in(4,:),-3,2);
+end
+%% GFMul
+function byte_out = GFMul(num,byte_in)
+% C = bitsll(B, N); ---- Bit Shift Left Logical
+% Left shift B by N bits. B must be numeric types.
+if num == 1
+    byte_out = byte_in;
+else
+    byte_shifted = dec2hex(bitsll(uint8(hex2dec(byte_in)),1));    
+    if hex2dec(byte_in(1)) >= 8     % MSB == 1
+        byte_xor = ByteXor(byte_shifted,'1B');
+    else                            % MSB == 0
+        byte_xor = ByteXor(byte_shifted,'00');
+    end
+    
+    if num == 2
+        byte_out = byte_xor;
+    else    % num ==3
+        byte_out = ByteXor(byte_xor,byte_in);
+    end
+end
+end
+%% MixColumns
+function state_out = MixColumns(state_in)
+% Refer to this : 
+%   "How to solve MixColumns":
+%      https://crypto.stackexchange.com/questions/2402/how-to-solve-mixcolumns
+mixbox = {
+    2,3,1,1;
+    1,2,3,1;
+    1,1,2,3;
+    3,1,1,2
+    };
+state_out = cell(size(state_in));
+
+for row = 1:size(state_in,1)
+    for col = 1:size(state_in,2)
+        mul_tmp = '00';
+        xor_tmp = '00';
+        for k = 1:4
+            mul_tmp = GFMul(mixbox{row,k},state_in{k,col});
+            xor_tmp = ByteXor(xor_tmp,mul_tmp);
+        end
+        state_out{row,col} = xor_tmp;
+    end
+end
+end
+%% MaskCompensation
+function mask = MaskCompensation(offset)
+mask_tmp = Mask(offset);
+mask_tmp = ShiftRows(mask_tmp);
+mask_tmp = MixColumns(mask_tmp);
+mask = MatrixXor(mask_tmp,Mask(offset));
+end

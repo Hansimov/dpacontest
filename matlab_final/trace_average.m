@@ -4,7 +4,7 @@ filename = cell(1,trace_number);
 trace = cell(1,trace_number);
 
 for i = 1:trace_number
-    if trace_number <= 10
+    if i <= 10
         filename{i} = strcat('../traces/mytracetexts/tracetexts0000',int2str(i-1));
     else 
         filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));

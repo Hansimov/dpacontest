@@ -25,7 +25,6 @@ offset = 8
 cipher_text = AES_RSM(cipher_key,plain_text,offset)
 % cipher_text = AES_256(cipher_key,plain_text)
 
-
 end
 
 %% AES_RSM
