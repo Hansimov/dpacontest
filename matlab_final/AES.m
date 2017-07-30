@@ -7,12 +7,70 @@
 
 %% AES
 function AES()
-% AES_256_Test()
+tic
+AES_256_Test()
+toc
+% InitiateConstants();
 tic
 AES_RSM_Test()
 toc
 end
 
+%% InitiateConstants
+function InitiateConstants()
+global sbox;
+global RC;
+global mixbox;
+global maskbox;
+
+sbox = { 
+    '63','7C','77','7B','F2','6B','6F','C5','30','01','67','2B','FE','D7','AB','76';
+    'CA','82','C9','7D','FA','59','47','F0','AD','D4','A2','AF','9C','A4','72','C0';
+    'B7','FD','93','26','36','3F','F7','CC','34','A5','E5','F1','71','D8','31','15';
+    '04','C7','23','C3','18','96','05','9A','07','12','80','E2','EB','27','B2','75';
+    '09','83','2C','1A','1B','6E','5A','A0','52','3B','D6','B3','29','E3','2F','84';
+    '53','D1','00','ED','20','FC','B1','5B','6A','CB','BE','39','4A','4C','58','CF';
+    'D0','EF','AA','FB','43','4D','33','85','45','F9','02','7F','50','3C','9F','A8';
+    '51','A3','40','8F','92','9D','38','F5','BC','B6','DA','21','10','FF','F3','D2';
+    'CD','0C','13','EC','5F','97','44','17','C4','A7','7E','3D','64','5D','19','73';
+    '60','81','4F','DC','22','2A','90','88','46','EE','B8','14','DE','5E','0B','DB';
+    'E0','32','3A','0A','49','06','24','5C','C2','D3','AC','62','91','95','E4','79';
+    'E7','C8','37','6D','8D','D5','4E','A9','6C','56','F4','EA','65','7A','AE','08';
+    'BA','78','25','2E','1C','A6','B4','C6','E8','DD','74','1F','4B','BD','8B','8A';
+    '70','3E','B5','66','48','03','F6','0E','61','35','57','B9','86','C1','1D','9E';
+    'E1','F8','98','11','69','D9','8E','94','9B','1E','87','E9','CE','55','28','DF';
+    '8C','A1','89','0D','BF','E6','42','68','41','99','2D','0F','B0','54','BB','16'
+    };
+
+RC = { % Round Constants
+    '01','02','04','08','10','20','40';
+    '00','00','00','00','00','00','00';
+    '00','00','00','00','00','00','00';
+    '00','00','00','00','00','00','00'
+    };
+mixbox = {
+    2,3,1,1;
+    1,2,3,1;
+    1,1,2,3;
+    3,1,1,2
+    };
+maskbox = {
+    '00','0F','36','39','53','5C','65','6A', ...
+    '95','9A','A3','AC','C6','C9','F0','FF'
+    };
+global hex_table;
+global bin_table;
+hex_table = [ 
+    '0','1','2','3','4','5','6','7', ...
+    '8','9','A','B','C','D','E','F'
+    ]; 
+bin_table = [
+    0 0 0 0; 0 0 0 1; 0 0 1 0; 0 0 1 1;
+    0 1 0 0; 0 1 0 1; 0 1 1 0; 0 1 1 1;
+    1 0 0 0; 1 0 0 1; 1 0 1 0; 1 0 1 1;
+    1 1 0 0; 1 1 0 1; 1 1 1 0; 1 1 1 1;
+    ];
+end
 %% AES_RSM_Test
 function AES_RSM_Test()
 cipher_key = '6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b'
@@ -29,6 +87,7 @@ end
 
 %% AES_RSM
 function cipher_text = AES_RSM(cipher_key,plain_text,offset)
+InitiateConstants();
 % Refer to these: 
 %   "Description of the masked AES of the DPA contest v4": Algorithm 1
 %      http://www.dpacontest.org/v4/data/rsm/aes-rsm.pdf
@@ -68,15 +127,16 @@ end
 
 %% AES_256_Test
 function AES_256_Test()
-plain_text = '00112233445566778899aabbccddeeff'
-cipher_key = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'
+plain_text = '448ff4f8eae2cea393553e15fd00eca1'
+cipher_key = '6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b'
 
-cipher_text = AES_256(cipher_key,plain_text);
-% cipher_text = '8ea2b7ca516745bfeafc49904b496089'
+cipher_text = AES_256(cipher_key,plain_text)
+% cipher_text = 'f71e9995e754e9f711b4027106a72788'
 end
 
 %% AES_256
 function cipher_text = AES_256(cipher_key,plain_text)
+InitiateConstants();
 % Refer to these: 
 %   "Announcing the ADVANCED ENCRYPTION STANDARD (AES)": Section 5.1 --- Cipher
 %      http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf
@@ -109,6 +169,42 @@ cipher_text = state;
 cipher_text = MatrixToText(cipher_text);
 end
 
+%% ShiftLeft
+% After using ShifLeft instead of bitsll(),
+% the whole AES is 3 times faster than the original one.
+function vec_out = ShiftLeft(vec_in,shift_bits,filled_value)
+filler_array = filled_value*ones(1,shift_bits);
+vec_out = [vec_in(shift_bits+1:end) filler_array];
+end
+
+%% HexToBin
+% This function is 10 times faster than hexToBinaryVector
+% One strange phenomenon: 
+%   The first call of HexToBin is sometimes lower than hexToBinaryVector
+% After using HexToBin, the whole AES is 2 times faster than the original one.
+function bin_vec = HexToBin(hex_str)
+global hex_table;
+global bin_table;
+hex_str = upper(hex_str);
+hex_str_num = numel(hex_str);
+bin_vec = zeros(1,4*hex_str_num);
+
+for i = 1:hex_str_num
+    bin_vec(1,4*i-3:4*i) = bin_table(hex_table == hex_str(i), :);
+end
+end
+%% BinToHex
+% After using BinToHex, the whole AES is 3 times faster than the original one.
+function hex_str = BinToHex(bin_vec)
+global hex_table;
+global bin_table;
+hex_str_num = numel(bin_vec)/4;
+
+for i = 1:hex_str_num
+    [IsMember,Index] = ismember(bin_vec(1,4*i-3:4*i),bin_table,'rows');
+    hex_str(i) = hex_table(Index);
+end
+end
 %% TextToMatrix
 function matrix = TextToMatrix(text)
 % Size of matrix: 4 by N
@@ -131,10 +227,10 @@ end
 end
 %% ByteXor
 function byte_out = ByteXor(byte1,byte2)
-binvec1     = hexToBinaryVector(byte1,8);
-binvec2     = hexToBinaryVector(byte2,8);
+binvec1     = HexToBin(byte1);
+binvec2     = HexToBin(byte2);
 binvec_xor  = bitxor(binvec1,binvec2);
-byte_out    = binaryVectorToHex(binvec_xor);
+byte_out    = BinToHex(binvec_xor);
 end
 
 %% MatrixXor
@@ -154,24 +250,7 @@ end
 
 %% SubBytes
 function state_out = SubBytes(state_in)
-sbox = { 
-    '63','7C','77','7B','F2','6B','6F','C5','30','01','67','2B','FE','D7','AB','76';
-    'CA','82','C9','7D','FA','59','47','F0','AD','D4','A2','AF','9C','A4','72','C0';
-    'B7','FD','93','26','36','3F','F7','CC','34','A5','E5','F1','71','D8','31','15';
-    '04','C7','23','C3','18','96','05','9A','07','12','80','E2','EB','27','B2','75';
-    '09','83','2C','1A','1B','6E','5A','A0','52','3B','D6','B3','29','E3','2F','84';
-    '53','D1','00','ED','20','FC','B1','5B','6A','CB','BE','39','4A','4C','58','CF';
-    'D0','EF','AA','FB','43','4D','33','85','45','F9','02','7F','50','3C','9F','A8';
-    '51','A3','40','8F','92','9D','38','F5','BC','B6','DA','21','10','FF','F3','D2';
-    'CD','0C','13','EC','5F','97','44','17','C4','A7','7E','3D','64','5D','19','73';
-    '60','81','4F','DC','22','2A','90','88','46','EE','B8','14','DE','5E','0B','DB';
-    'E0','32','3A','0A','49','06','24','5C','C2','D3','AC','62','91','95','E4','79';
-    'E7','C8','37','6D','8D','D5','4E','A9','6C','56','F4','EA','65','7A','AE','08';
-    'BA','78','25','2E','1C','A6','B4','C6','E8','DD','74','1F','4B','BD','8B','8A';
-    '70','3E','B5','66','48','03','F6','0E','61','35','57','B9','86','C1','1D','9E';
-    'E1','F8','98','11','69','D9','8E','94','9B','1E','87','E9','CE','55','28','DF';
-    '8C','A1','89','0D','BF','E6','42','68','41','99','2D','0F','B0','54','BB','16'
-    };
+global sbox;
 
 % sbox_dec = reshape(hex2dec(sbox),16,16);
 state_out = cell(size(state_in));
@@ -203,7 +282,9 @@ function byte_out = GFMul(num,byte_in)
 if num == 1
     byte_out = byte_in;
 else
-    byte_shifted = dec2hex(bitsll(uint8(hex2dec(byte_in)),1));    
+    % byte_shifted = dec2hex(bitsll(uint8(hex2dec(byte_in)),1),2);    
+    byte_shifted = BinToHex(ShiftLeft(HexToBin(byte_in),1,0));
+    
     if hex2dec(byte_in(1)) >= 8     % MSB == 1
         byte_xor = ByteXor(byte_shifted,'1B');
     else                            % MSB == 0
@@ -223,12 +304,7 @@ function state_out = MixColumns(state_in)
 % Refer to this : 
 %   "How to solve MixColumns":
 %      https://crypto.stackexchange.com/questions/2402/how-to-solve-mixcolumns
-mixbox = {
-    2,3,1,1;
-    1,2,3,1;
-    1,1,2,3;
-    3,1,1,2
-    };
+global mixbox;
 state_out = cell(size(state_in));
 
 for row = 1:size(state_in,1)
@@ -261,12 +337,7 @@ Nk = 8;                  % Nk: Cipher Key Size
 K = cipher_key;          % K : Cipher Key     Nb x Nk     = 4 x 8
 W = cell(Nb,Nb*(Nr+1));  % W : Expanded Key   Nb x (Nr+1) = 4 x 15
 
-RC = { % Round Constants
-    '01','02','04','08','10','20','40';
-    '00','00','00','00','00','00','00';
-    '00','00','00','00','00','00','00';
-    '00','00','00','00','00','00','00'
-    };
+global RC; % Round Constants
 
 W(1:4,1:8) = K(1:4,1:8);
 for col = 9:Nb*(Nr+1)
@@ -289,10 +360,7 @@ end
 
 %% Mask
 function mask = Mask(offset)
-maskbox = {
-    '00','0F','36','39','53','5C','65','6A', ...
-    '95','9A','A3','AC','C6','C9','F0','FF'
-    };
+global maskbox;
 mask = circshift(maskbox,-offset,2);
 mask = reshape(mask,4,4);
 end

@@ -1,5 +1,7 @@
 
+%% function alltest
 function alltest()
+InitiateConstants()
 % ShiftRowsTest();
 % GFMulTest();
 % MixColumnsTest()
@@ -7,28 +9,111 @@ function alltest()
 % SubBytesTest()
 % KeyScheduleTest()
 % AES_256_Test()
-
+% HexToBinTest()
+% BinToHexTest()
+% ShiftLeftTest()
+isMemberSTest
 
 end
-% maskbox = {
-%     '00','00','00','00','00','00','00','00', ...
-%     '00','00','00','00','00','00','00','00'
-%     };
 
-%% OperatorTest
-function OperatorTest()
-% Only used in MUPAD 
-m1 = {
-    '00','00','00','00','00','00','00','00', ...
-    '00','00','00','00','00','00','00','00'
-    }
-m2 = {
-    '00','0F','36','39','53','5C','65','6A', ...
-    '95','9A','A3','AC','C6','C9','F0','FF'
-    }
-operator('ADD',MatrixXor,Binary,1000)
-m = m1 ADD m2;
-operator('ADD',Delete)
+%% InitiateConstants
+function InitiateConstants()
+global hex_table;
+global bin_table;
+hex_table = [ 
+    '0','1','2','3','4','5','6','7', ...
+    '8','9','A','B','C','D','E','F'
+    ]; 
+bin_table = [
+    0 0 0 0; 0 0 0 1; 0 0 1 0; 0 0 1 1;
+    0 1 0 0; 0 1 0 1; 0 1 1 0; 0 1 1 1;
+    1 0 0 0; 1 0 0 1; 1 0 1 0; 1 0 1 1;
+    1 1 0 0; 1 1 0 1; 1 1 1 0; 1 1 1 1;
+    ];
+end
+%% ShiftLeftTest
+function ShiftLeftTest()
+binvec = [1 2 3 4 5 6 7 8 9 10]
+binvec_shifted = ShiftLeft(binvec,3,1)
+end
+%% ShiftLeft
+function vec_out = ShiftLeft(vec_in,shift_bits,filled_value)
+filler_array = filled_value*ones(1,shift_bits);
+vec_out = [vec_in(shift_bits+1:end) filler_array];
+end
+
+%% HexToBinTest
+function HexToBinTest()
+InitiateConstants();
+hex_str = zeros(256,2);
+i = 0:1;
+hex_str = dec2hex(i)
+disp('HexToBin...');
+tic
+str_bin_1 = HexToBin(hex_str)
+toc
+disp('hexToBinaryVector...')
+tic
+str_bin_2 = hexToBinaryVector(hex_str,4)
+toc
+isequal(str_bin_1,str_bin_2)
+end
+
+%% HexToBin
+% This function is much faster than hexToBinaryVector
+% One strange phenomenon: 
+%   The first call of HexToBin is sometimes lower than hexToBinaryVector
+function bin_vec = HexToBin(hex_str)
+global hex_table;
+global bin_table;
+hex_str = upper(hex_str);
+hex_str_num = numel(hex_str);
+bin_vec = zeros(1,4*hex_str_num);
+
+for i = 1:hex_str_num
+    bin_vec(1,4*i-3:4*i) = bin_table(hex_table == hex_str(i), :);
+end
+end
+
+%% BinToHexTest
+function BinToHexTest()
+InitiateConstants();
+bin_vec = [0 1 0 1 1 1 0 0 1 0 1 0]
+tic
+hex_str = BinToHex(bin_vec)
+toc
+tic
+hex_str = binaryVectorToHex(bin_vec)
+toc
+end
+%% BinToHex
+function hex_str = BinToHex(bin_vec)
+global hex_table;
+global bin_table;
+hex_str_num = numel(bin_vec)/4;
+
+for i = 1:hex_str_num
+    [IsMember,Index] = ismember(bin_vec(1,4*i-3:4*i),bin_table,'rows');
+    hex_str(i) = hex_table(Index);
+end
+end
+
+%% isMemberSTest
+function index = isMemberSTest(bin_vec)
+global bin_table;
+tic
+[~,Locb] = ismember([1 1 1 1],bin_table,'rows')
+toc
+tic
+index_2 = isMemberS([1 1 1 1])
+toc
+end
+
+%% isMemberS
+function index = isMemberS(bin_vec)
+global bin_table;
+index = 1*bin_vec(1) + 2*bin_vec(2) + 4*bin_vec(3) + 8*bin_vec(4);
+end
 end
 
 %% AddRoundKey
