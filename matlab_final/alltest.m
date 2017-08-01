@@ -1,4 +1,3 @@
-
 %% function alltest
 function alltest()
 InitiateConstants()
@@ -12,7 +11,7 @@ InitiateConstants()
 % HexToBinTest()
 % BinToHexTest()
 % ShiftLeftTest()
-isMemberSTest
+isMemberSTest()
 
 end
 

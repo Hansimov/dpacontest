@@ -1,22 +1,103 @@
 %% myattack
 function myattack()
-trace_num = 11;
-[key,plain_text,cipher_text,offset,trace] = Inputs(trace_num)
 
-vin1 = cell(1,trace_num);
-% 
-% for i = 1:1
-% [vin1,vin2,vout1,vout2] = GetInterValue(key{i},plain_text{i},cipher_text{i},offset{i})
-% end
-
+% InterByteMatrixTest()
+% HWByteMatrixTest()
+% size(CorrelationMatrix(5,1))
+PlotCorrelation(50,1)
+% BinHexTest()
 end
 
-%% Inputs
-function [key,plain_text,cipher_text,offset,trace] = Inputs(trace_num)
-key = '6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b';
-key = TextToMatrix(key);
+%% PlotCorrelation
+function PlotCorrelation(trace_num,byte_num)
+corr_mat = CorrelationMatrix(trace_num,byte_num);
+for i = 1:256
+    if mod(i,16) == 1
+        figure;
+    end
+    plot(corr_mat(i,:))
+    hold on;
+end
+end
 
-% indexfilename = '../dpav4_rsm_index';
+%% CorrelationMatrix
+function corr_mat = CorrelationMatrix(trace_num,byte_num)
+hw_byte_mat = HWByteMatrix(trace_num,byte_num);  % D x K
+trace_mat   = RealTrace(trace_num);              % D x T
+corr_mat    = corr(hw_byte_mat,trace_mat);       % K x T
+end
+
+%% RealTrace
+function trace_mat = RealTrace(trace_num)
+filename = cell(1,trace_num);
+trace = cell(1,trace_num);   
+for i = 1:trace_num
+    if i <= 10
+        filename{i} = strcat('../traces/mytracetexts/tracetexts0000',int2str(i-1));
+    elseif i >= 11 && i <= 100
+        filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));
+    elseif i >= 101 && i <= 1000
+        filename{i} = strcat('../traces/mytracetexts/tracetexts00',int2str(i-1));
+    end
+    trace{i} = importdata(filename{i})';  % Each trace: [1 x 435002]
+end
+trace = reshape(trace,trace_num,1);       % Cell:  [1 x 435002 double] x trace_num
+trace_mat = cell2mat(trace);              % Array: [trace_num x 435002 double]
+end
+
+
+%% HWByteMatrix
+function hw_byte_mat = HWByteMatrix(trace_num,byte_num)
+inter_byte_mat = InterByteMatrix(trace_num,byte_num);
+hw_byte_mat = zeros(trace_num,256);
+for row = 1:trace_num
+    for col = 1:256
+        hw_byte_mat(row,col) = HWByte(inter_byte_mat{row,col});
+    end
+end
+end
+
+%% HWByte
+function HW = HWByte(byte)
+bin_vec = HexToBin(byte);
+HW = nnz(bin_vec);
+end
+
+
+%% InterByteMatrix
+function inter_byte_mat = InterByteMatrix(trace_num,byte_num)
+% byte_num: The position of each byte
+[plain_text,offset] = MyInputs(trace_num);
+
+inter_byte_mat = cell(trace_num,256);  
+
+% Guess one byte of key through all 256 possibilities
+for key_num = 0:255
+    key_byte = dec2hex(key_num,2);
+    for i = 1:trace_num
+        inter_byte_mat{i,key_num+1} = ...
+            InterByte(key_byte, plain_text{i},offset{i},byte_num);
+    end
+end
+end
+
+%% InterByte
+function inter_byte = InterByte(key_byte,plain_text,offset,byte_num)
+InitiateConstants();
+byte_tmp = plain_text{byte_num};
+byte_tmp = ByteXor(byte_tmp,MaskByte(offset,byte_num));
+byte_tmp = ByteXor(byte_tmp,key_byte);
+
+byte_tmp = ByteXor(byte_tmp,MaskByte(offset,byte_num));
+byte_tmp = SubBytesByte(byte_tmp);
+byte_tmp = ByteXor(byte_tmp,MaskByte(offset+1,byte_num));
+inter_byte = byte_tmp;
+end
+
+
+%% MyInputs
+function [plain_text,offset] = MyInputs(trace_num)
+
 indexfile = fopen('../dpav4_rsm_index');
 index = textscan(indexfile,'%s %s %s %s %s %s',trace_num); 
 fclose(indexfile);
@@ -26,120 +107,25 @@ fclose(indexfile);
 %          Key  Plaintext  Ciphertext  Offset  Directory  TraceFile
 % 
 % Example:
-% index{2}:     Plaintext   ALL: [100000 x 1]
+% index{2}:     Plaintext   ALL: [trace_num x 1]
 % index{2}{1}:  Plaintext 00000: 448ff4f8eae2cea393553e15fd00eca1
 
 plain_text  = index{2};
-cipher_text = index{3};
 offset      = index{4};
 
 for i = 1:trace_num
-    plain_text{i} = TextToMatrix(plain_text{i});
-    cipher_text{i} = TextToMatrix(cipher_text{i});
+    plain_text{i}  = TextToMatrix(plain_text{i});
+    offset{i}      = hex2dec(offset{i});
+end
 end
 
-offset = hex2dec(offset);
+%% InitiateConstants
+function InitiateConstants()
+global sbox;
+global RC;
+global mixbox;
+global maskbox;
 
-filename = cell(1,trace_num);
-trace = cell(1,trace_num);
-for i = 1:trace_num
-    if i <= 10
-        filename{i} = strcat('../traces/mytracetexts/tracetexts0000',int2str(i-1));
-    else 
-        filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));
-    end
-    trace{i} = importdata(filename{i})';
-end
-
-end
-
-%% GetInterValue
-function [vin1,vin2,vout1,vout2] = GetInterValue(key,plain_text,cipher_text,offset)
-state = plain_text;
-state = MatrixXor(state,Mask(offset));
-state = AddRoundKey(state,key(:,1:4));
-vin1 = state;
-% Only use first round
-% state = MaskedSubBytes(state,offset+round-1);
-state = MatrixXor(state,Mask(offset));
-vin2 = state;
-state = SubBytes(state);
-vout1 = state;
-state = MatrixXor(state,Mask(offset+1)); 
-vout2 = state;
-
-state = ShiftRows(state);
-state = MixColumns(state);
-state = MatrixXor(state,MaskCompensation(offset+round));
-
-end
-%% ByteHW
-function ByteHW()
-
-end
-
-%% BytePower
-function BytePower()
-end
-
-function GetCorrelationMatrix()
-end
-
-function GetLeakagePosition()
-
-end
-
-%% TextToMatrix
-function matrix = TextToMatrix(text)
-% Type of text  : characters
-% Size of matrix: 4 by N
-row = 4;
-col = numel(text)/8;
-matrix = cell(row,col);
-for i = 1:row*col
-    matrix{i} = [text(2*i-1),text(2*i)];
-end
-end
-%% MatrixToText
-function text = MatrixToText(matrix)
-% Size of matrix: 4 by N
-text = blanks(2*numel(matrix));
-for i = 1:numel(matrix)
-    text(2*i-1) = matrix{i}(1);
-    text(2*i)   = matrix{i}(2);
-end
-end
-%% Mask
-function mask = Mask(offset)
-maskbox = {
-    '00','0F','36','39','53','5C','65','6A', ...
-    '95','9A','A3','AC','C6','C9','F0','FF'
-    };
-mask = circshift(maskbox,-offset,2);
-mask = reshape(mask,4,4);
-end
-%% ByteXor
-function byte_out = ByteXor(byte1,byte2)
-binvec1     = hexToBinaryVector(byte1,8);
-binvec2     = hexToBinaryVector(byte2,8);
-binvec_xor  = bitxor(binvec1,binvec2);
-byte_out    = binaryVectorToHex(binvec_xor);
-end
-%% MatrixXor
-function matrix_out = MatrixXor(matrix1,matrix2)
-% Type of matrix 1 & 2 :    Cell
-% Element of matrix 1 & 2 : Byte
-matrix_out = cell(size(matrix1));
-for i = 1:numel(matrix1)
-    matrix_out{i} = ByteXor(matrix1{i},matrix2{i});
-end
-end
-%% AddRoundKey
-function state_out = AddRoundKey(state_in,key_in)
-state_out = MatrixXor(state_in,key_in);
-end
-%% SubBytes
-function state_out = SubBytes(state_in)
 sbox = { 
     '63','7C','77','7B','F2','6B','6F','C5','30','01','67','2B','FE','D7','AB','76';
     'CA','82','C9','7D','FA','59','47','F0','AD','D4','A2','AF','9C','A4','72','C0';
@@ -159,83 +145,147 @@ sbox = {
     '8C','A1','89','0D','BF','E6','42','68','41','99','2D','0F','B0','54','BB','16'
     };
 
-% sbox_dec = reshape(hex2dec(sbox),16,16);
-state_out = cell(size(state_in));
-for i = 1:numel(state_in)
-    row = hex2dec(state_in{i}(1))+1;
-    col = hex2dec(state_in{i}(2))+1;
-    state_out(i) = sbox(row,col);
-end
-end
-%% MaskedSubBytes
-function state_out = MaskedSubBytes(state_in,offset)
-state_tmp = MatrixXor(state_in,Mask(offset));
-state_tmp = SubBytes(state_tmp);
-state_out = MatrixXor(state_tmp,Mask(offset+1)); 
-end
-%% ShiftRows
-function state_out = ShiftRows(state_in)
-% Size of state_in : 4 x 4
-state_out = cell(size(state_in));
-% circshift(V,K,D):
-%     V: Vector
-%     K: Right shift K positions. We need Left shift -K in AES.
-%     D: Dimension shifted. D=2 here.
-state_out(1,:) = circshift(state_in(1,:), 0,2);
-state_out(2,:) = circshift(state_in(2,:),-1,2);
-state_out(3,:) = circshift(state_in(3,:),-2,2);
-state_out(4,:) = circshift(state_in(4,:),-3,2);
-end
-%% GFMul
-function byte_out = GFMul(num,byte_in)
-% C = bitsll(B, N); ---- Bit Shift Left Logical
-% Left shift B by N bits. B must be numeric types.
-if num == 1
-    byte_out = byte_in;
-else
-    byte_shifted = dec2hex(bitsll(uint8(hex2dec(byte_in)),1));    
-    if hex2dec(byte_in(1)) >= 8     % MSB == 1
-        byte_xor = ByteXor(byte_shifted,'1B');
-    else                            % MSB == 0
-        byte_xor = ByteXor(byte_shifted,'00');
-    end
-    
-    if num == 2
-        byte_out = byte_xor;
-    else    % num ==3
-        byte_out = ByteXor(byte_xor,byte_in);
-    end
-end
-end
-%% MixColumns
-function state_out = MixColumns(state_in)
-% Refer to this : 
-%   "How to solve MixColumns":
-%      https://crypto.stackexchange.com/questions/2402/how-to-solve-mixcolumns
+RC = { % Round Constants
+    '01','02','04','08','10','20','40';
+    '00','00','00','00','00','00','00';
+    '00','00','00','00','00','00','00';
+    '00','00','00','00','00','00','00'
+    };
 mixbox = {
     2,3,1,1;
     1,2,3,1;
     1,1,2,3;
     3,1,1,2
     };
-state_out = cell(size(state_in));
+maskbox = {
+    '00','0F','36','39','53','5C','65','6A', ...
+    '95','9A','A3','AC','C6','C9','F0','FF'
+    };
+global hex_table;
+global bin_table;
+hex_table = [ 
+    '0','1','2','3','4','5','6','7', ...
+    '8','9','A','B','C','D','E','F'
+    ]; 
+bin_table = [
+    0 0 0 0; 0 0 0 1; 0 0 1 0; 0 0 1 1;
+    0 1 0 0; 0 1 0 1; 0 1 1 0; 0 1 1 1;
+    1 0 0 0; 1 0 0 1; 1 0 1 0; 1 0 1 1;
+    1 1 0 0; 1 1 0 1; 1 1 1 0; 1 1 1 1;
+    ];
+end
 
-for row = 1:size(state_in,1)
-    for col = 1:size(state_in,2)
-        mul_tmp = '00';
-        xor_tmp = '00';
-        for k = 1:4
-            mul_tmp = GFMul(mixbox{row,k},state_in{k,col});
-            xor_tmp = ByteXor(xor_tmp,mul_tmp);
-        end
-        state_out{row,col} = xor_tmp;
-    end
+%% ShiftLeft
+% After using ShifLeft instead of bitsll(),
+% the whole AES is 3 times faster than the original one.
+function vec_out = ShiftLeft(vec_in,shift_bits,filled_value)
+filler_array = filled_value*ones(1,shift_bits);
+vec_out = [vec_in(shift_bits+1:end) filler_array];
+end
+
+%% HexToBin
+% This function is 10 times faster than hexToBinaryVector
+% One strange phenomenon: 
+%   The first call of HexToBin is sometimes lower than hexToBinaryVector
+% After using HexToBin, the whole AES is 2 times faster than the original one.
+function bin_vec = HexToBin(hex_str)
+global hex_table;
+global bin_table;
+hex_str = upper(hex_str);
+hex_str_num = numel(hex_str);
+bin_vec = zeros(1,4*hex_str_num);
+
+for i = 1:hex_str_num
+    bin_vec(1,4*i-3:4*i) = bin_table(hex_table == hex_str(i), :);
 end
 end
-%% MaskCompensation
-function mask = MaskCompensation(offset)
-mask_tmp = Mask(offset);
-mask_tmp = ShiftRows(mask_tmp);
-mask_tmp = MixColumns(mask_tmp);
-mask = MatrixXor(mask_tmp,Mask(offset));
+%% BinToHex
+% After using BinToHex, the whole AES is 3 times faster than the original one.
+function hex_str = BinToHex(bin_vec)
+global hex_table;
+global bin_table;
+hex_str_num = numel(bin_vec)/4;
+hex_str = blanks(hex_str_num);
+
+for i = 1:hex_str_num
+    [IsMember,Index] = ismember(bin_vec(1,4*i-3:4*i),bin_table,'rows');
+    hex_str(i) = hex_table(Index);
 end
+end
+
+%% TextToMatrix
+function matrix = TextToMatrix(text)
+% Size of matrix: 4 by N
+row = 4;
+col = numel(text)/8;
+matrix = cell(row,col);
+for i = 1:row*col
+    matrix{i} = [text(2*i-1),text(2*i)];
+end
+end
+%% MatrixToText
+function text = MatrixToText(matrix)
+% Size of matrix: 4 by N
+text = blanks(2*numel(matrix));
+for i = 1:numel(matrix)
+    text(2*i-1) = matrix{i}(1);
+    text(2*i)   = matrix{i}(2);
+end
+end
+
+%% ByteXor
+function byte_out = ByteXor(byte1,byte2)
+binvec1     = HexToBin(byte1);
+binvec2     = HexToBin(byte2);
+binvec_xor  = bitxor(binvec1,binvec2);
+byte_out    = BinToHex(binvec_xor);
+end
+
+%% MatrixXor
+function matrix_out = MatrixXor(matrix1,matrix2)
+% Type of matrix 1 & 2 :    Cell
+% Element of matrix 1 & 2 : Byte
+matrix_out = cell(size(matrix1));
+for i = 1:numel(matrix1)
+    matrix_out{i} = ByteXor(matrix1{i},matrix2{i});
+end
+end
+
+%% SubBytesByte
+function byte_out = SubBytesByte(byte_in)
+global sbox;
+row = hex2dec(byte_in(1))+1;
+col = hex2dec(byte_in(2))+1;
+byte_out = sbox{row,col};
+end
+
+%% MaskByte
+function mask_byte = MaskByte(offset,byte_num)
+global maskbox;
+mask = circshift(maskbox,-offset,2);
+% mask = reshape(mask,4,4);
+mask_byte = mask{byte_num};
+end
+
+%% BinHexTest
+function BinHexTest()
+tic
+for i = 1:50000
+    t = HexToBin('ff');
+end
+toc
+tic
+for j = 1:50000
+    s = dec2bin(hex2dec('ff'));
+end
+toc
+end
+%% InterByteMatrixTest
+function InterByteMatrixTest()
+inter_byte_mat = InterByteMatrix(4,5)
+end
+%% HWByteMatrixTest
+function HWByteMatrixTest()
+hw_byte_mat = HWByteMatrix(5,5)
+end
+

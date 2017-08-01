@@ -199,7 +199,7 @@ function hex_str = BinToHex(bin_vec)
 global hex_table;
 global bin_table;
 hex_str_num = numel(bin_vec)/4;
-
+hex_str = blanks(hex_str_num);
 for i = 1:hex_str_num
     [IsMember,Index] = ismember(bin_vec(1,4*i-3:4*i),bin_table,'rows');
     hex_str(i) = hex_table(Index);
