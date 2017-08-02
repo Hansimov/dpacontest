@@ -4,20 +4,22 @@ function myattack()
 % InterByteMatrixTest()
 % HWByteMatrixTest()
 % size(CorrelationMatrix(5,1))
-PlotCorrelation(50,1)
-% BinHexTest()
+% PlotCorrelation(50,1)
+% BinToHexTest()
+% HexToBinTest
+ShiftTest()
 end
 
 %% PlotCorrelation
 function PlotCorrelation(trace_num,byte_num)
 corr_mat = CorrelationMatrix(trace_num,byte_num);
-for i = 1:256
-    if mod(i,16) == 1
-        figure;
-    end
-    plot(corr_mat(i,:))
-    hold on;
-end
+% for i = 1:256
+%     if mod(i,16) == 1
+%         figure;
+%     end
+%     plot(corr_mat(i,:))
+%     hold on;
+% end
 end
 
 %% CorrelationMatrix
@@ -175,6 +177,15 @@ bin_table = [
     ];
 end
 
+%% CircShiftLeft
+% CircShiftLeft is 2x faster than circshift
+function vec_out = CircShiftLeft(vec_in,shift_bits)
+if class(vec_in) == 'cell'
+    vec_out = {vec_in{shift_bits+1:end} vec_in{1:shift_bits}};
+else
+    vec_out = [vec_in(shift_bits+1:end) vec_in(1:shift_bits)];
+end
+end
 %% ShiftLeft
 % After using ShifLeft instead of bitsll(),
 % the whole AES is 3 times faster than the original one.
@@ -184,11 +195,57 @@ vec_out = [vec_in(shift_bits+1:end) filler_array];
 end
 
 %% HexToBin
+% HexToBin uses Switch-Case, is 3x faster than HexToBinOld
+% On average, Switch-Case is slightly faster than If-Else, about 5% in test
+function bin_vec = HexToBin(hex_str)
+hex_str = upper(hex_str);
+hex_str_num = numel(hex_str);
+bin_vec = zeros(1,4*hex_str_num);
+for i = 1:hex_str_num
+    switch hex_str(i)
+        case '0'  
+            bin_vec(1,4*i-3:4*i) = [0 0 0 0];
+        case '1'
+            bin_vec(1,4*i-3:4*i) = [0 0 0 1];
+        case '2'
+            bin_vec(1,4*i-3:4*i) = [0 0 1 0];
+        case '3'
+            bin_vec(1,4*i-3:4*i) = [0 0 1 1];
+        case '4'
+            bin_vec(1,4*i-3:4*i) = [0 1 0 0];
+        case '5'
+            bin_vec(1,4*i-3:4*i) = [0 1 0 1];
+        case '6'
+            bin_vec(1,4*i-3:4*i) = [0 1 1 0];
+        case '7'
+            bin_vec(1,4*i-3:4*i) = [0 1 1 1];
+        case '8'
+            bin_vec(1,4*i-3:4*i) = [1 0 0 0];
+        case '9'
+            bin_vec(1,4*i-3:4*i) = [1 0 0 1];
+        case 'A'
+            bin_vec(1,4*i-3:4*i) = [1 0 1 0];
+        case 'B'
+            bin_vec(1,4*i-3:4*i) = [1 0 1 1];
+        case 'C'
+            bin_vec(1,4*i-3:4*i) = [1 1 0 0];
+        case 'D'
+            bin_vec(1,4*i-3:4*i) = [1 1 0 1];
+        case 'E'
+            bin_vec(1,4*i-3:4*i) = [1 1 1 0];
+        case 'F'
+            bin_vec(1,4*i-3:4*i) = [1 1 1 1];
+        otherwise
+            bin_vec(1,4*i-3:4*i) = [0 0 0 0];
+    end
+end
+end
+%% HexToBinOld
 % This function is 10 times faster than hexToBinaryVector
 % One strange phenomenon: 
 %   The first call of HexToBin is sometimes lower than hexToBinaryVector
 % After using HexToBin, the whole AES is 2 times faster than the original one.
-function bin_vec = HexToBin(hex_str)
+function bin_vec = HexToBinOld(hex_str)
 global hex_table;
 global bin_table;
 hex_str = upper(hex_str);
@@ -199,9 +256,63 @@ for i = 1:hex_str_num
     bin_vec(1,4*i-3:4*i) = bin_table(hex_table == hex_str(i), :);
 end
 end
+
 %% BinToHex
-% After using BinToHex, the whole AES is 3 times faster than the original one.
+% BinToHex uses a binary tree, though ugly, is 20x faster than BinToHexOld
 function hex_str = BinToHex(bin_vec)
+hex_str_num = numel(bin_vec)/4;
+hex_str = blanks(hex_str_num);
+for i = 1:hex_str_num
+    if bin_vec(4*i-3) == 0
+        if bin_vec(4*i-2) == 0
+            if bin_vec(4*i-1) == 0
+                if (bin_vec(4*i) == 0)  hex_str(i) = '0';
+                else                    hex_str(i) = '1';
+                end
+            else
+                if (bin_vec(4*i) == 0)  hex_str(i) = '2';
+                else                    hex_str(i) = '3';
+                end
+            end
+        else
+            if bin_vec(4*i-1) == 0
+                if (bin_vec(4*i) == 0)  hex_str(i) = '4';
+                else                    hex_str(i) = '5';
+                end
+            else
+                if (bin_vec(4*i) == 0)  hex_str(i) = '6';
+                else                    hex_str(i) = '7';
+                end
+            end
+        end
+    else
+        if bin_vec(4*i-2) == 0
+            if bin_vec(4*i-1) == 0
+                if (bin_vec(4*i) == 0)  hex_str(i) = '8';
+                else                    hex_str(i) = '9';
+                end
+            else
+                if (bin_vec(4*i) == 0)  hex_str(i) = 'A';
+                else                    hex_str(i) = 'B';
+                end
+            end
+        else
+            if bin_vec(4*i-1) == 0
+                if (bin_vec(4*i) == 0)  hex_str(i) = 'C';
+                else                    hex_str(i) = 'D';
+                end
+            else
+                if (bin_vec(4*i) == 0)  hex_str(i) = 'E';
+                else                    hex_str(i) = 'F';
+                end
+            end
+        end                    
+    end
+end
+end
+%% BinToHexOld
+% After using BinToHexOld, the whole AES is 3 times faster than binaryVectorToHex.
+function hex_str = BinToHexOld(bin_vec)
 global hex_table;
 global bin_table;
 hex_str_num = numel(bin_vec)/4;
@@ -262,23 +373,60 @@ end
 %% MaskByte
 function mask_byte = MaskByte(offset,byte_num)
 global maskbox;
-mask = circshift(maskbox,-offset,2);
+% mask = circshift(maskbox,-offset,2);
+mask = CircShiftLeft(maskbox,offset);
 % mask = reshape(mask,4,4);
 mask_byte = mask{byte_num};
 end
 
-%% BinHexTest
-function BinHexTest()
+%% BinToHexTest
+function BinToHexTest()
+InitiateConstants();
+vec1 = [0 1 1 0 1 1 1 1];
+vec2 = [1 0 0 1 1 0 0 0];
+tic
+for i = 1:10000
+    t1 = BinToHexOld(vec1);
+    t2 = BinToHexOld(vec2);
+end
+toc
+tic
+for i = 1:10000
+    t3 = BinToHex(vec1);
+    t4 = BinToHex(vec2);
+end
+toc
+end
+
+%% HexToBinTest
+function HexToBinTest()
+hex1 = '37';
+hex2 = 'bf';
+disp('Old...')
 tic
 for i = 1:50000
-    t = HexToBin('ff');
+    bin1 = HexToBinOld(hex1);
+    bin2 = HexToBinOld(hex2);
 end
 toc
+disp('If Else...')
+% tic
+% for j = 1:50000
+%     bin3 = HexToBinIf(hex1);
+%     bin4 = HexToBinIf(hex2);
+% end
+% toc
+disp('Switch Case...')
 tic
 for j = 1:50000
-    s = dec2bin(hex2dec('ff'));
+    bin5 = HexToBin(hex1);
+    bin6 = HexToBin(hex2);
 end
 toc
+% isequal(bin1,bin3);
+% isequal(bin2,bin4);
+isequal(bin1,bin5);
+isequal(bin2,bin6);
 end
 %% InterByteMatrixTest
 function InterByteMatrixTest()
@@ -288,4 +436,20 @@ end
 function HWByteMatrixTest()
 hw_byte_mat = HWByteMatrix(5,5)
 end
-
+%% ShiftTest
+function ShiftTest()
+global maskbox;
+disp('circshift...')
+tic
+for i = 1:10000
+    mask1 = circshift(maskbox,-8,2);
+end
+toc
+disp('CircShiftLeft...')
+tic
+for i = 1:10000
+    mask2 = CircShiftLeft(maskbox,8);
+end
+toc
+isequal(mask1,mask2)
+end
