@@ -10,3 +10,5 @@ dpav4_rsm_index
 /traces/mytracetexts/
 *.trc.bz2
 
+# data
+*.mat
