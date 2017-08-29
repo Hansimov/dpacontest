@@ -4,13 +4,16 @@ tic
 % InterByteMatrixTest()
 % HWByteMatrixTest()
 % size(CorrelationMatrix(5,1))
-PlotCorrelation(50,1)
+% PlotCorrelation(50,1)
 % BinToHexTest()
 % HexToBinTest
 % ShiftTest()
 % trace_mat = LoadTrace(20);
+% [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(100,100);
+Leakage(100,100);
 toc
 end
+
 
 %% PlotCorrelation
 function PlotCorrelation(trace_num,byte_num)
@@ -22,6 +25,105 @@ corr_mat = CorrelationMatrix(trace_num,byte_num);
 %     plot(corr_mat(i,:))
 %     hold on;
 % end
+end
+
+
+%% TemplateMatch
+function TemplateMatch()
+% Step 1 - Load Trace and Select Leak Points
+% Step 2 - Compute the Square of Difference Between Real Trace and All Templates
+% Step 3 - Select the Most Possible Template and Get the Offset
+end
+%% TemplateBuild
+function TemplateBuild(trace_num)
+% Step 1 - Select Leak Points in Traces 
+load('./leak_points.mat');
+% Step 2 - Classify Traces to 16 Groups by Offset
+% Step 3 - Compute Mean Values of All Traces at the Same Group
+end
+
+
+%% Leakage
+function [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(trace_num,N)
+% leak_points_offset  : [ 1 x N]
+% leak_points_sbox_in : [16 x N]
+% leak_points_sbox_out: [16 x N]
+% Element of the leak matrix is the position of intereting points
+% N: Number of Leakage Points -  About 50 to 100
+% byte_num: The postion of each byte  1-16
+% sbox_i: Inter value of sbox input (Masked)
+% sbox_o: Inter value of sbox output(Masked)
+
+% ******** Variables Preallocation ******** %
+cipher_key          = upper('6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b');
+[plain_text,offset] = MyInputs(trace_num);
+disp('[*] Loading trace file ...');
+mf = matfile('F:\Sources\MATLAB\work\dpatraces\tracemat.mat');
+disp('[+] Trace file loaded !');
+
+% ******** Offset Leakage ******** %
+disp('[*] Discovering OFFSET leak points ...');
+% Step 1 - Compute Inter Values and Hamming Weight
+disp(['    ','[*] Computing Inter Values and Hamming Weight', ' ...']);
+offs = cell(trace_num,1);
+for i = 1:trace_num
+    offs{i} = dec2hex(offset{i},2);
+end
+hw_offs = HWMat(offs);
+% Step 2 - Compute Correlation Matrix and Plot
+disp(['    ','[*] Computing Correlation Matrix and Plotting', ' ...']);
+corr_offs = corr(hw_offs,mf.tracemat(1:trace_num,:)); % [1 x T]
+% figure;
+% plot(corr_mat_offs);
+% Step 3 - Sort Correlation Matrix and Get Leak Points
+disp(['    ','[*] Sorting Correlation Matrix and Getting Leak Points', ' ...']);
+[corr_offs_sorted,corr_offs_order] = sort(corr_offs,2,'descend');
+% leak_value_offset = corr_offs_sorted(:,1:N); % [16 x N]
+leak_points_offset = corr_offs_order(:,1:N); % [1 x N]
+disp('[+] OFFSET leak points discovered !');
+
+% ******** Sbox Leakage ******** %
+disp('[*] Discovering SBOX leak points ...');
+% Step 1 - Compute Inter Values and Hamming Weight
+disp(['    ','[*] Computing Inter Values and Hamming Weight', ' ...']);
+sbox_i              = cell(trace_num,16);
+sbox_o              = cell(trace_num,16);
+for byte_num = 1:16
+    key_byte = cipher_key(byte_num*2-1:byte_num*2);
+    for i = 1:trace_num
+        [~,~,sbox_i{i,byte_num},sbox_o{i,byte_num}] = InterByte(key_byte, plain_text{i},offset{i},byte_num);
+    end
+%     disp(['    ','[*] Processing Byte ', num2str(byte_num,'%02d'), ' ...']);
+end
+hw_sbox_i = HWMat(sbox_i);
+hw_sbox_o = HWMat(sbox_o);
+% Step 2 - Compute Correlation Matrix and Plot
+disp(['    ','[*] Computing Correlation Matrix and Plotting', ' ...']);
+corr_sbox_i = corr(hw_sbox_i,mf.tracemat(1:trace_num,:)); % [16 x T]
+corr_sbox_o = corr(hw_sbox_o,mf.tracemat(1:trace_num,:)); % [16 x T]
+% figure;
+% for j = 1:16
+%     p(j) = plot(corr_sbox_i(j,:),'DisplayName',['Byte ',num2str(j,'%02d'),' - ','Key ',cipher_key(j*2-1:j*2)]);
+%     hold on;
+% end
+% plotbrowser('on');
+% Step 3 - Sort Correlation Matrix and Get Leak Points
+disp(['    ','[*] Sorting Correlation Matrix and Getting Leak Points', ' ...']);
+[corr_sbox_i_sorted,corr_sbox_i_order] = sort(corr_sbox_i,2,'descend');
+[corr_sbox_o_sorted,corr_sbox_o_order] = sort(corr_sbox_o,2,'descend');
+% leak_value_sbox_i = corr_sbox_i_sorted(:,1:N); % [16 x N]
+% leak_value_sbox_o = corr_sbox_o_sorted(:,1:N); % [16 x N]
+leak_points_sbox_i = corr_sbox_i_order(:,1:N); % [16 x N]
+leak_points_sbox_o = corr_sbox_o_order(:,1:N); % [16 x N]
+disp('[+] SBOX leak points discovered !');
+
+disp('[*] Saving leak points file ...');
+leak_points_file = './leak_points.mat';
+save(leak_points_file,'leak_points_offset','leak_points_sbox_i','leak_points_sbox_o','-v7.3');
+whos('-file',leak_points_file);
+disp('[+] Leak points file saved ...');
+% load('./leak_points.mat');
+
 end
 
 %% CorrelationMatrix
@@ -50,6 +152,8 @@ for i = 1:trace_num
         filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));
     elseif i >= 101 && i <= 1000
         filename{i} = strcat('../traces/mytracetexts/tracetexts00',int2str(i-1));
+    elseif i >= 1001 && i <= 10000
+        filename{i} = strcat('../traces/mytracetexts/tracetexts0',int2str(i-1));
     end
     trace{i} = importdata(filename{i})';  % Each trace: [1 x 435002]
 end
@@ -69,6 +173,17 @@ for row = 1:trace_num
 end
 end
 
+%% HWMat
+function HWMat = HWMat(v_mat)
+[row,col] = size(v_mat);
+HWMat = zeros(row,col);
+for i = 1:row
+    for j = 1:col
+        HWMat(i,j) = HWByte(v_mat{i,j});
+    end
+end
+end
+
 %% HWByte
 function HW = HWByte(byte)
 bin_vec = HexToBin(byte);
@@ -77,32 +192,30 @@ end
 
 %% InterByteMatrix
 function inter_byte_mat = InterByteMatrix(trace_num,byte_num)
-% byte_num: The position of each byte
+% byte_num: The position of each byte: 0-15
 [plain_text,offset] = MyInputs(trace_num);
 
-inter_byte_mat = cell(trace_num,256);  
+inter_byte_mat = cell(trace_num,256);
 
 % Guess one byte of key through all 256 possibilities
 for key_num = 0:255
     key_byte = dec2hex(key_num,2);
     for i = 1:trace_num
-        inter_byte_mat{i,key_num+1} = ...
+        [~,~,~,inter_byte_mat{i,key_num+1}] = ...
             InterByte(key_byte, plain_text{i},offset{i},byte_num);
     end
 end
 end
 
 %% InterByte
-function inter_byte = InterByte(key_byte,plain_text,offset,byte_num)
-% InitiateConstants();
-byte_tmp = plain_text{byte_num};
-byte_tmp = ByteXor(byte_tmp,MaskByte(offset,byte_num));
-byte_tmp = ByteXor(byte_tmp,key_byte);
+function [v1,v2,v3,v4] = InterByte(key_byte,plain_text,offset,byte_num)
+v1 = plain_text{byte_num};
+v2 = ByteXor(v1,MaskByte(offset,byte_num));
+v3 = ByteXor(v2,key_byte);
 
-byte_tmp = ByteXor(byte_tmp,MaskByte(offset,byte_num));
-byte_tmp = SubBytesByte(byte_tmp);
-byte_tmp = ByteXor(byte_tmp,MaskByte(offset+1,byte_num));
-inter_byte = byte_tmp;
+v_tmp = ByteXor(v3,MaskByte(offset,byte_num));
+v_tmp = SubBytesByte(v_tmp);
+v4 = ByteXor(v_tmp,MaskByte(offset+1,byte_num));
 end
 
 %% MyInputs
@@ -307,8 +420,16 @@ end
 %% BinToHexOld
 % After using BinToHexOld, the whole AES is 3 times faster than binaryVectorToHex.
 function hex_str = BinToHexOld(bin_vec)
-global hex_table;
-global bin_table;
+hex_table = [ 
+    '0','1','2','3','4','5','6','7', ...
+    '8','9','A','B','C','D','E','F'
+    ]; 
+bin_table = [
+    0 0 0 0; 0 0 0 1; 0 0 1 0; 0 0 1 1;
+    0 1 0 0; 0 1 0 1; 0 1 1 0; 0 1 1 1;
+    1 0 0 0; 1 0 0 1; 1 0 1 0; 1 0 1 1;
+    1 1 0 0; 1 1 0 1; 1 1 1 0; 1 1 1 1;
+    ];
 hex_str_num = numel(bin_vec)/4;
 hex_str = blanks(hex_str_num);
 
@@ -453,7 +574,10 @@ hw_byte_mat = HWByteMatrix(5,5)
 end
 %% ShiftTest
 function ShiftTest()
-global maskbox;
+maskbox = {
+    '00','0F','36','39','53','5C','65','6A', ...
+    '95','9A','A3','AC','C6','C9','F0','FF'
+    };
 disp('circshift...')
 tic
 for i = 1:10000
