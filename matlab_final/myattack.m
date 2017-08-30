@@ -9,22 +9,59 @@ tic
 % HexToBinTest
 % ShiftTest()
 % trace_mat = LoadTrace(20);
-% [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(100,100);
-% Leakage(100,100);
-% TemplateBuild(8000);
-offset_guess = TemplateMatch(50);
+% [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(200,100);
+% [leak_trace_offset,leak_trace_sbox_i,leak_trace_sbox_o] = LeakTrace(10000);
+% TemplateBuild(10000);
+% offset_guess = TemplateMatch(100);
 toc
 end
+
+%% KeyGuess
+function key_guess = KeyGuess(trace_num)
+% trace_num: Number of traces used to guess keys
+% A good method is using traces from 1 to trace_num and observe the changes of correct rate of key guessing
+
+% Step 1 - Template Attack Offsets
+offset_guess = TemplateMatch(10000);
+
+% Step 2 - Load Sbox Leak Traces, Plaintexts and Correct Key
+load('leak_trace.mat','leak_trace_sbox_i','leak_trace_sbox_o');
+[plain_text,~] = MyInputs(trace_num);
+cipher_key = upper('6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b');
+key_correct = cell(1,16);
+for i = 1:16
+    key_correct{i} = [cipher_key(2*i-1),cipher_key(2*i)];
+end
+
+% Step 3 - Compute Inter Values and Corresponding Hamming Weight
+for byte_num = 1:16
+    inter_mat_sbox_o = cell(trace_num,256);
+    for key_num = 0:255
+        key_byte = dec2hex(key_num,2);
+        for i = 1:trace_num
+            [~,~,~,inter_mat_sbox_o{i,key_num+1}] = InterByte(key_byte, plain_text{i},offset{i},byte_num);
+        end
+    end
+end
+% Step 4 - Compute Correlation Matrix and Select Most Possible Key
+
+% Step 5 - Compute Correct Rate of Key Guessing
+
+
+end
+
 
 
 %% TemplateMatch
 function offset_guess = TemplateMatch(trace_num)
+% trace_num : Number of traces, we guess their offsets and provide them for later key guessing
+% offset_guess: [ trace_num x 1 ] double
+
 % Step 1 - Load Traces, Templates and Offsets
-disp('[*] Loading Traces, Templates and Offsets ...');
-mf = matfile('F:\Sources\MATLAB\work\dpatraces\tracemat.mat');
-load('./leak_points.mat');        % [    1 x N ]      - Here N = 100
-load('./offset_template.mat');    % [ 8000 x N ] cell - '8000' is the number used to build template
-load('./leak_trace_offset.mat');  % [ 8000 x N ]      - Should be all traces (10000), but 8000 is saved and enough.
+disp('[*] Loading OFFSET Leak Traces, Templates and Correct OFFSETs ...');
+load('leak_points.mat','leak_points_offset');  % [    1 x N  ]      - Here N = 100
+load('offset_template.mat');                   % [ 10000 x N ] cell - '10000' is the number used to build template
+load('leak_trace.mat','leak_trace_offset');    % [ 10000 x N ] 
 [~,offset] = MyInputs(trace_num); % offset: [trace_num x 1] cell
 offset = cell2mat(offset);
 offset_guess = zeros(trace_num,1);
@@ -48,22 +85,13 @@ correct_rate = num_correct / num_total
 end
 %% TemplateBuild
 function offset_template = TemplateBuild(trace_num)
+% trace_num : Number of traces to build templates
 disp('[*] Building Templates of OFFSET ...');
 % Step 1 - Load Trace and Select Leak Points
 disp(['    ','[*] Loading Trace and Selecting Leak Points', ' ...']);
 mf = matfile('F:\Sources\MATLAB\work\dpatraces\tracemat.mat');
-load('./leak_points.mat');
-% leak_trace = mf.tracemat(1:trace_num,leak_points_offset);
-% Why I do not use the code on the line above?
-% Because ranges for MatFile objects must increase in equally spaced intervals.
-j = 1;
-leak_trace_offset = zeros(trace_num,size(leak_points_offset,2));
-for col = leak_points_offset
-    leak_trace_offset(:,j) = mf.tracemat(1:trace_num,col);
-    j = j + 1;
-end
-leak_trace_offset_file = './leak_trace_offset.mat';
-save(leak_trace_offset_file,'leak_trace_offset','-v7.3');
+load('leak_points.mat','leak_points_offset');
+load('leak_trace.mat','leak_trace_offset');
 
 [~,offset] = MyInputs(trace_num); % offset: [trace_num x 1] cell
 offset = cell2mat(offset);
@@ -85,20 +113,83 @@ disp(['    ','[*] Build Templates with different offs', ' ...']);
 for offs = 1:16
     offset_template{offs} = mean(offset_trace{offs},1); % Mean of each column
 end
-offset_template_file = './offset_template.mat';
+offset_template_file = 'offset_template.mat';
 save(offset_template_file,'offset_template','-v7.3');
 
 disp('[+] Templates of OFFSET Built !');
 end
 
+%% LeakTrace
+% Only save the leak points of each trace
+function [leak_trace_offset,leak_trace_sbox_i,leak_trace_sbox_o] = LeakTrace(trace_num)
+% trace_num : Number of traces, for each trace we only save the leak points
+% N: Number of Leakage Points -  About 50 to 100
+% leak_trace_offset: [ trace_num x N ]
+% leak_trace_sbox_i: [ trace_num x N x 16]
+% leak_trace_sbox_o: [ trace_num x N x 16]
+
+% Step 1 - Load Traces and Leak Points
+disp('[*] Loading Traces and Leak Points ...');
+mf = matfile('F:\Sources\MATLAB\work\dpatraces\tracemat.mat');
+load('leak_points.mat');
+N = size(leak_points_offset,2);            % Here N is same (100) for offset and sbox_io
+leak_trace_offset = zeros(trace_num,N);
+leak_trace_sbox_i = zeros(trace_num,N,16); % The 3rd dimension is byte_num, here is 16
+leak_trace_sbox_o = zeros(trace_num,N,16);
+
+% Step 2 - Save the leak points on each trace for offsets and sbox
+disp('[*] Saving the leak points on each trace for offsets and sbox ...');
+% leak_trace = mf.tracemat(1:trace_num,leak_points_offset);
+% Why I do not use the code on the line above?
+% Because ranges for MatFile objects must increase in equally spaced intervals.
+
+disp(['    ','[*] Processing OFFSET Leak Traces', ' ...']);
+j = 1; 
+% Variable 'j' is used to guarantee the leak_trace index from 1 to N
+for col = leak_points_offset
+    disp(['    ','    ** Processing Column ', num2str(j,'%03d'),' ...']);
+    leak_trace_offset(:,j) = mf.tracemat(1:trace_num,col);
+    j = j + 1;
+end
+
+disp(['    ','[*] Processing SBOX_I Leak Traces', ' ...']);
+for byte_num = 1:16
+    disp(['    ','    ** Processing Sbox_i Byte ', num2str(byte_num,'%02d'),' ...']);
+    j = 1;
+    for col = leak_points_sbox_i(byte_num,:)
+        disp(['    ','       *** Processing Sbox_i Column ', num2str(j,'%03d'),' ...']);
+        leak_trace_sbox_i(:,j,byte_num) = mf.tracemat(1:trace_num,col);
+        j = j + 1;
+    end
+end
+
+disp(['    ','[*] Processing SBOX_O Leak Traces', ' ...']);
+for byte_num = 1:16
+    disp(['    ','    ** Processing Sbox_o Byte ', num2str(byte_num,'%02d'),' ...']);
+    j = 1;
+    for col = leak_points_sbox_o(byte_num,:)
+        disp(['    ','       *** Processing Sbox_o Column ', num2str(j,'%03d'),' ...']);
+        leak_trace_sbox_o(:,j,byte_num) = mf.tracemat(1:trace_num,col);
+        j = j + 1;
+    end
+end
+
+leak_trace_file = 'leak_trace.mat';
+save(leak_trace_file,'leak_trace_offset','leak_trace_sbox_i','leak_trace_sbox_o','-v7.3');
+disp('[+] Leak traces saved !');
+whos('-file','leak_trace.mat');
+
+end
 
 %% Leakage
+% Discover leak points of offset and sbox_io
 function [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(trace_num,N)
+% trace_num : Number of traces to distinguish leak points
+% N: Number of Leakage Points -  About 50 to 100
 % leak_points_offset  : [ 1 x N]
 % leak_points_sbox_in : [16 x N]
 % leak_points_sbox_out: [16 x N]
 % Element of the leak matrix is the position of intereting points
-% N: Number of Leakage Points -  About 50 to 100
 % byte_num: The postion of each byte  1-16
 % sbox_i: Inter value of sbox input (Masked)
 % sbox_o: Inter value of sbox output(Masked)
@@ -167,11 +258,11 @@ leak_points_sbox_o = corr_sbox_o_order(:,1:N); % [16 x N]
 disp('[+] SBOX leak points discovered !');
 
 disp('[*] Saving leak points file ...');
-leak_points_file = './leak_points.mat';
+leak_points_file = 'leak_points.mat';
 save(leak_points_file,'leak_points_offset','leak_points_sbox_i','leak_points_sbox_o','-v7.3');
 whos('-file',leak_points_file);
-disp('[+] Leak points file saved ...');
-% load('./leak_points.mat');
+disp('[+] Leak points file saved !');
+% load('leak_points.mat');
 
 end
 
@@ -205,6 +296,8 @@ end
 end
 
 %% HWMat
+% Input:  Bytes Characters Matrix - Hex cell   string
+% Output: Hamming Weight   Matrix - Dec double number
 function HWMat = HWMat(v_mat)
 [row,col] = size(v_mat);
 HWMat = zeros(row,col);
@@ -216,6 +309,7 @@ end
 end
 
 %% HWByte
+% Compute the Hamming Weight of a given byte
 function HW = HWByte(byte)
 bin_vec = HexToBin(byte);
 HW = nnz(bin_vec);
@@ -239,6 +333,9 @@ end
 end
 
 %% InterByte
+% Compute Inter Values of one specified byte of a state in AES
+% v3: sbox_i
+% v4: sbox_o
 function [v1,v2,v3,v4] = InterByte(key_byte,plain_text,offset,byte_num)
 v1 = plain_text{byte_num};
 v2 = ByteXor(v1,MaskByte(offset,byte_num));
@@ -250,6 +347,10 @@ v4 = ByteXor(v_tmp,MaskByte(offset+1,byte_num));
 end
 
 %% MyInputs
+% Output cell matrix consisting of given plain_text and offsets
+% plain_text: [ trace_num x 1 ] cell 
+%     - In each cell is a [ 4 x 4 ] cell
+
 function [plain_text,offset] = MyInputs(trace_num)
 indexfile = fopen('../dpav4_rsm_index');
 index = textscan(indexfile,'%s %s %s %s %s %s',trace_num); 
@@ -260,8 +361,9 @@ fclose(indexfile);
 %          Key  Plaintext  Ciphertext  Offset  Directory  TraceFile
 % 
 % Example:
-% index{2}:     Plaintext   ALL: [trace_num x 1]
-% index{2}{1}:  Plaintext 00000: 448ff4f8eae2cea393553e15fd00eca1
+% index{2}:   = Plaintext    : [ trace_num x  1 ] cell
+% index{2}{1}:= Plaintext{1} :         [ 1 x 32 ] string  - '448ff4f8eae2cea393553e15fd00eca1'
+% TextToMatrix(plain_text{i}); =>      [ 4 x  4 ] cell    - Each element is one byte (2 characters)
 
 plain_text  = index{2};
 offset      = index{4};
@@ -470,8 +572,11 @@ end
 end
 
 %% TextToMatrix
+% Only applicable for limited conditions.
+% Output [ 4 x N ] cell
 function matrix = TextToMatrix(text)
-% Size of matrix: 4 by N
+% matrix: [ 4 x N ] cell
+% Each element of the matrix is a byte (2 characters).
 row = 4;
 col = numel(text)/8;
 matrix = cell(row,col);
