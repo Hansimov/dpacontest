@@ -10,36 +10,85 @@ tic
 % ShiftTest()
 % trace_mat = LoadTrace(20);
 % [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(100,100);
-Leakage(100,100);
+% Leakage(100,100);
+% TemplateBuild(8000);
+offset_guess = TemplateMatch(50);
 toc
 end
 
 
-%% PlotCorrelation
-function PlotCorrelation(trace_num,byte_num)
-corr_mat = CorrelationMatrix(trace_num,byte_num);
-% for i = 1:256
-%     if mod(i,16) == 1
-%         figure;
-%     end
-%     plot(corr_mat(i,:))
-%     hold on;
-% end
-end
-
-
 %% TemplateMatch
-function TemplateMatch()
-% Step 1 - Load Trace and Select Leak Points
-% Step 2 - Compute the Square of Difference Between Real Trace and All Templates
-% Step 3 - Select the Most Possible Template and Get the Offset
+function offset_guess = TemplateMatch(trace_num)
+% Step 1 - Load Traces, Templates and Offsets
+disp('[*] Loading Traces, Templates and Offsets ...');
+mf = matfile('F:\Sources\MATLAB\work\dpatraces\tracemat.mat');
+load('./leak_points.mat');        % [    1 x N ]      - Here N = 100
+load('./offset_template.mat');    % [ 8000 x N ] cell - '8000' is the number used to build template
+load('./leak_trace_offset.mat');  % [ 8000 x N ]      - Should be all traces (10000), but 8000 is saved and enough.
+[~,offset] = MyInputs(trace_num); % offset: [trace_num x 1] cell
+offset = cell2mat(offset);
+offset_guess = zeros(trace_num,1);
+offset_template = cell2mat(offset_template);
+% Step 2 - Compare Real Trace with Templates and Select the Most Possible Offset
+disp('[*] Comparing Real Trace with Templates and Selecting the Most Possible Offset ...');
+N = size(leak_points_offset,2);
+for i = 1:trace_num
+    diff = bsxfun(@minus,offset_template,leak_trace_offset(i,:)); % [ 16 x N ]
+    sum_of_squares = sum(diff.^2,2);                              % [ 16 x 1 ]
+    [~,min_index] = min(sum_of_squares);
+    offset_guess(i,1) = min_index - 1; % Offset begins from 0, while matlab begins from 1.
+end
+% Step 3 - Compute Correct Rate of Offset Guessing
+disp('[*] Computing Correct Rate of Offset Guessing ...');
+num_total    = trace_num;
+comparison   = (offset(1:num_total,1) == offset_guess);
+num_correct  = sum(comparison); % Or you can use nnz() here, but nnz() is much slower.
+correct_rate = num_correct / num_total
+
 end
 %% TemplateBuild
-function TemplateBuild(trace_num)
-% Step 1 - Select Leak Points in Traces 
+function offset_template = TemplateBuild(trace_num)
+disp('[*] Building Templates of OFFSET ...');
+% Step 1 - Load Trace and Select Leak Points
+disp(['    ','[*] Loading Trace and Selecting Leak Points', ' ...']);
+mf = matfile('F:\Sources\MATLAB\work\dpatraces\tracemat.mat');
 load('./leak_points.mat');
-% Step 2 - Classify Traces to 16 Groups by Offset
-% Step 3 - Compute Mean Values of All Traces at the Same Group
+% leak_trace = mf.tracemat(1:trace_num,leak_points_offset);
+% Why I do not use the code on the line above?
+% Because ranges for MatFile objects must increase in equally spaced intervals.
+j = 1;
+leak_trace_offset = zeros(trace_num,size(leak_points_offset,2));
+for col = leak_points_offset
+    leak_trace_offset(:,j) = mf.tracemat(1:trace_num,col);
+    j = j + 1;
+end
+leak_trace_offset_file = './leak_trace_offset.mat';
+save(leak_trace_offset_file,'leak_trace_offset','-v7.3');
+
+[~,offset] = MyInputs(trace_num); % offset: [trace_num x 1] cell
+offset = cell2mat(offset);
+
+% Step 2 - Classify Traces to 16 Groups by Offset Values
+disp(['    ','[*] Classifying Traces to 16 Groups', ' ...']);
+offset_group = cell(16,1);
+offset_trace = cell(16,1);
+offset_template = cell(16,1);
+for offs =1:16
+    offset_group{offs} = find(offset==(offs-1))';
+end
+for offs = 1:16
+    offset_trace{offs} = leak_trace_offset(offset_group{offs},:);
+end
+% Step 3 - Build Templates with different offs
+disp(['    ','[*] Build Templates with different offs', ' ...']);
+% Here the template is the mean value of each column
+for offs = 1:16
+    offset_template{offs} = mean(offset_trace{offs},1); % Mean of each column
+end
+offset_template_file = './offset_template.mat';
+save(offset_template_file,'offset_template','-v7.3');
+
+disp('[+] Templates of OFFSET Built !');
 end
 
 
@@ -126,40 +175,22 @@ disp('[+] Leak points file saved ...');
 
 end
 
+%% PlotCorrelation
+function PlotCorrelation(trace_num,byte_num)
+corr_mat = CorrelationMatrix(trace_num,byte_num);
+% for i = 1:256
+%     if mod(i,16) == 1
+%         figure;
+%     end
+%     plot(corr_mat(i,:))
+%     hold on;
+% end
+end
 %% CorrelationMatrix
 function corr_mat = CorrelationMatrix(trace_num,byte_num)
 hw_byte_mat = HWByteMatrix(trace_num,byte_num);  % D x K
 trace_mat   = LoadTrace(trace_num);              % D x T
 corr_mat    = corr(hw_byte_mat,trace_mat);       % K x T
-end
-
-%% LoadTrace
-function trace_mat = LoadTrace(trace_num)
-% trace_all = load('trace_all.mat','trace_all');
-mydata = matfile('trace_all.mat');
-trace_mat = mydata.trace_all(1:trace_num,:);
-% save trace_mat trace_mat
-end
-
-%% SaveTrace
-function trace_all = SaveTrace(trace_num)
-filename = cell(1,trace_num);
-trace = cell(1,trace_num);
-for i = 1:trace_num
-    if i <= 10
-        filename{i} = strcat('../traces/mytracetexts/tracetexts0000',int2str(i-1));
-    elseif i >= 11 && i <= 100
-        filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));
-    elseif i >= 101 && i <= 1000
-        filename{i} = strcat('../traces/mytracetexts/tracetexts00',int2str(i-1));
-    elseif i >= 1001 && i <= 10000
-        filename{i} = strcat('../traces/mytracetexts/tracetexts0',int2str(i-1));
-    end
-    trace{i} = importdata(filename{i})';  % Each trace: [1 x 435002]
-end
-trace = reshape(trace,trace_num,1);       % Cell:  [1 x 435002 double] x trace_num
-trace_all = cell2mat(trace);              % Array: [trace_num x 435002 double]
-save('trace_all.mat','trace_all','-v7.3');
 end
 
 %% HWByteMatrix
@@ -220,7 +251,6 @@ end
 
 %% MyInputs
 function [plain_text,offset] = MyInputs(trace_num)
-
 indexfile = fopen('../dpav4_rsm_index');
 index = textscan(indexfile,'%s %s %s %s %s %s',trace_num); 
 fclose(indexfile);
@@ -515,6 +545,35 @@ maskbox = {
 mask_byte = maskbox{mod(byte_num+offset-1,16)+1};
 end
 
+%% LoadTrace
+% These two functions are not used anymore: LoadTrace & SaveTrace
+% Update to 'trace_processing.m'
+function trace_mat = LoadTrace(trace_num)
+% trace_all = load('trace_all.mat','trace_all');
+mydata = matfile('trace_all.mat');
+trace_mat = mydata.trace_all(1:trace_num,:);
+% save trace_mat trace_mat
+end
+%% SaveTrace
+function trace_all = SaveTrace(trace_num)
+filename = cell(1,trace_num);
+trace = cell(1,trace_num);
+for i = 1:trace_num
+    if i <= 10
+        filename{i} = strcat('../traces/mytracetexts/tracetexts0000',int2str(i-1));
+    elseif i >= 11 && i <= 100
+        filename{i} = strcat('../traces/mytracetexts/tracetexts000',int2str(i-1));
+    elseif i >= 101 && i <= 1000
+        filename{i} = strcat('../traces/mytracetexts/tracetexts00',int2str(i-1));
+    elseif i >= 1001 && i <= 10000
+        filename{i} = strcat('../traces/mytracetexts/tracetexts0',int2str(i-1));
+    end
+    trace{i} = importdata(filename{i})';  % Each trace: [1 x 435002]
+end
+trace = reshape(trace,trace_num,1);       % Cell:  [1 x 435002 double] x trace_num
+trace_all = cell2mat(trace);              % Array: [trace_num x 435002 double]
+save('trace_all.mat','trace_all','-v7.3');
+end
 %% BinToHexTest
 function BinToHexTest()
 InitiateConstants();
@@ -533,7 +592,6 @@ for i = 1:10000
 end
 toc
 end
-
 %% HexToBinTest
 function HexToBinTest()
 hex1 = '37';
