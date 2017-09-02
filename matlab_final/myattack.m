@@ -1,18 +1,11 @@
 %% myattack
 function myattack()
 tic
-% InterByteMatrixTest()
-% HWByteMatrixTest()
-% size(CorrelationMatrix(5,1))
-% PlotCorrelation(50,1)
-% BinToHexTest()
-% HexToBinTest
-% ShiftTest()
-% trace_mat = LoadTrace(20);
-% [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(200,100);
-% [leak_trace_offset,leak_trace_sbox_i,leak_trace_sbox_o] = LeakTrace(10000);
-% TemplateBuild(10000);
-% offset_guess = TemplateMatch(100);
+% % [leak_points_offset,leak_points_sbox_i,leak_points_sbox_o] = Leakage(200,100);
+% % [leak_trace_offset,leak_trace_sbox_i,leak_trace_sbox_o] = LeakTrace(10000);
+% % TemplateBuild(10000);
+% % offset_guess = TemplateMatch(100);
+KeyGuess(50);
 toc
 end
 
@@ -22,10 +15,14 @@ function key_guess = KeyGuess(trace_num)
 % A good method is using traces from 1 to trace_num and observe the changes of correct rate of key guessing
 
 % Step 1 - Template Attack Offsets
+disp('[*] Template Attacking Offsets ...');
 offset_guess = TemplateMatch(10000);
 
 % Step 2 - Load Sbox Leak Traces, Plaintexts and Correct Key
-load('leak_trace.mat','leak_trace_sbox_i','leak_trace_sbox_o');
+disp('[*] Loading Sbox Leak Traces, Plaintexts and Correct Key ...');
+load('leak_trace.mat','leak_trace_sbox_o'); % [ 10000 x 100 x 16 ] double
+N = size(leak_trace_sbox_o,2);
+% plain_text: [ 4 x 4 ] cell  -  Why 4 x 4 ? A historical issue through my design of AES.
 [plain_text,~] = MyInputs(trace_num);
 cipher_key = upper('6cecc67f287d083deb8766f0738b36cf164ed9b246951090869d08285d2e193b');
 key_correct = cell(1,16);
@@ -34,19 +31,67 @@ for i = 1:16
 end
 
 % Step 3 - Compute Inter Values and Corresponding Hamming Weight
-for byte_num = 1:16
-    inter_mat_sbox_o = cell(trace_num,256);
-    for key_num = 0:255
-        key_byte = dec2hex(key_num,2);
-        for i = 1:trace_num
-            [~,~,~,inter_mat_sbox_o{i,key_num+1}] = InterByte(key_byte, plain_text{i},offset{i},byte_num);
+disp('[*] Computing Inter Values and Corresponding Hamming Weight ...');
+inter_mat_sbox_o    = cell(trace_num,256,16);
+hw_inter_mat_sbox_o = zeros(trace_num,256,16);
+for row = 1:trace_num
+    disp(['    ','[*] Processing Trace ',num2str(row-1,'%05d') ,' ...']);
+    for key_num = 1:256
+        key_byte = dec2hex(key_num-1,2);
+        for byte_num = 1:16
+            [~,~,~,inter_mat_sbox_o{row,key_num,byte_num}] ...
+                = InterByte(key_byte,plain_text{row},offset_guess(row,1),byte_num);
         end
     end
 end
-% Step 4 - Compute Correlation Matrix and Select Most Possible Key
+for byte_num = 1:16
+    hw_inter_mat_sbox_o(:,:,byte_num) = HWMat(inter_mat_sbox_o(:,:,byte_num));
+end
 
-% Step 5 - Compute Correct Rate of Key Guessing
+% Step 4 - Compute Correlation Matrix for Increasing Trace Num and Select Most Possible Key
+disp('[*] Compute Correlation Matrix and Selecting Most Possible Key ...');
+corr_mat  = zeros(256,N,16);
+% Why I do not save a trace_num dimension to 'corr_mat'? Because it is too large.
+% What I have interest is 'key_guess', not 'corr_mat'. The latter is just a mean, not an aim.
+corr_mean = zeros(256,16);           % Compress the N of 'corr_mat' to 1.
+key_guess_dec = zeros(trace_num,16); % Each row of 'key_guess_dec' is the whole 16-byte key guessed under current trace_num
+key_guess = cell(trace_num,16);
+for row = 1:trace_num
+%     disp(['    ','[*] Number of Traces Exploited : ',num2str(row-1,'%05d')]);
+    for byte_num = 1:16
+        % corr_mat: [ 256 x N ] - Only record correlation matrix under current trace_num 
+        corr_mat(:,:,byte_num) = corr(hw_inter_mat_sbox_o(1:row,1:256,byte_num),leak_trace_sbox_o(1:row,1:N,byte_num));
+        corr_mean(:,byte_num) = mean(corr_mat(:,:,byte_num),2); % Compute the mean of each row
+        % corr_mean(:,byte_num) = max(corr_mat(:,:,byte_num),[],2); % Compute the max of each row
+    end
+    [~,key_guess_dec(row,:)] = max(corr_mean,[],1);  % Find the index of max corr of each column (1:16)
+    key_guess_dec(row,:) = key_guess_dec(row,:) - 1; % Index of key begins from 0, not 1.
+end
 
+% Step 5 - Compute Correctness of Key Guessing
+disp('[*] Compute Correlation Matrix and Selecting Most Possible Key ...');
+correctness_mat = zeros(trace_num,16);
+correctness_disp = cell(trace_num,16);
+% Why I do not break the code below to several independent for loop?
+% Because I want to display the guessing key and its correctness after every new trace added.
+for row = 1:trace_num
+    disp(['    ','[*] Number of Traces Exploited : ',num2str(row-1,'%05d')]);
+    for byte_num = 1:16
+        key_guess{row,byte_num} = dec2hex(key_guess_dec(row,byte_num),2);
+        if isequal(key_guess{row,byte_num}, key_correct{byte_num})
+            correctness_mat(row,byte_num)  = 1;
+            correctness_disp{row,byte_num} = '**';
+        elseif isequal(HWByte(key_guess{row,byte_num}) , HWByte(key_correct{byte_num}))
+            correctness_mat(row,byte_num) = 0.5;
+            correctness_disp{row,byte_num} = '--';
+        else
+            correctness_mat(row,byte_num) = 0;
+            correctness_disp{row,byte_num} = '  ';
+        end
+    end
+    disp(['    ','    ** Key Guessed : ',key_guess{row,:}]);
+    disp(['    ','    ** Correctness : ',correctness_disp{row,:}]);
+end
 
 end
 
